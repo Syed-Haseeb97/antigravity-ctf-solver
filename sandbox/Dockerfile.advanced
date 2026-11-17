@@ -1,0 +1,19 @@
+# CTF challenge solver sandbox image — Advanced Profile
+# Heavyweight symbolic execution and automated RSA tools installed on demand.
+# Build command: docker build -f sandbox/Dockerfile.advanced -t ctf-sandbox-advanced .
+
+FROM ctf-sandbox-standard:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── Symbolic Execution & Automated RSA ───────────────────────────────────────
+RUN pip3 install --no-cache-dir angr
+
+# ── RsaCtfTool ───────────────────────────────────────────────────────────────
+RUN git clone --depth=1 https://github.com/RsaCtfTool/RsaCtfTool /opt/RsaCtfTool \
+    && pip3 install --no-cache-dir /opt/RsaCtfTool
+
+# ── Update tools inventory ───────────────────────────────────────────────────
+RUN printf "\n- Advanced Symbolic / Heavy Tools (Advanced Profile):\n\
+  - Symbolic Execution: angr\n\
+  - Automated RSA: RsaCtfTool\n" >> /tools.txt

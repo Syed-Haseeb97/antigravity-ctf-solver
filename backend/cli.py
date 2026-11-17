@@ -1,231 +1,428 @@
-"""Antigravity CLI — Click entry point for the CTF solver swarm."""
+"""Antigravity CLI — Hardware-friendly autonomous CTF solver workstation."""
 
 from __future__ import annotations
 
 import asyncio
-import logging
+import os
+import shutil
 import sys
 from pathlib import Path
 
 import click
+from rich import box
 from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from backend.config import Settings
-from backend.models import DEFAULT_MODELS
 
 console = Console()
 
-# ── Banner ────────────────────────────────────────────────────────────────────
-
 BANNER = r"""
-  _    _ _ _ _  _    _           _       _
- | |  | | | | || |  | |         | |     | |
- | |__| | | | || |__| | ___   __| | __ _| |_ ___
- |  __  | | | ||  __  |/ _ \ / _` |/ _` | __/ _ \
- | |  | | | | || |  | | (_) | (_| | (_| | ||  __/
- |_|  |_|_||_||_|  |_|\___/ \__,_|\__,_|\__\___|
+ [bold cyan]   _    _ _ _ _  _    _           _       _ [/bold cyan]
+ [bold cyan]  | |  | | | | || |  | |         | |     | |[/bold cyan]
+ [bold cyan]  | |__| | | | || |__| | ___   __| | __ _| |_ ___[/bold cyan]
+ [bold cyan]  |  __  | | | ||  __  |/ _ \ / _` |/ _` | __/ _ \[/bold cyan]
+ [bold cyan]  | |  | | | | || |  | | (_) | (_| | (_| | ||  __/[/bold cyan]
+ [bold cyan]  |_|  |_|_||_||_|  |_|\___/ \__,_|\__,_|\__\___|[/bold cyan]
+ [dim]Autonomous Hardware-Friendly CTF Solving Workstation[/dim]
 """
 
 
-def _setup_logging(verbose: bool = False) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("botocore").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("aiodocker").setLevel(logging.WARNING)
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%X"))
-    logging.basicConfig(level=level, handlers=[handler], force=True)
+@click.group()
+@click.version_option(version="2.0.0", prog_name="antigravity")
+def cli() -> None:
+    """Antigravity CLI — Hardware-Friendly Autonomous CTF Workstation."""
+    pass
 
 
-@click.command()
-@click.version_option(version="1.0.0", prog_name="antigravity")
-@click.option("--ctfd-url", default=None, help="CTFd URL (overrides .env)")
-@click.option("--ctfd-token", default=None, help="CTFd API token (overrides .env)")
-@click.option("--image", default="ctf-sandbox", help="Docker sandbox image name")
-@click.option("--models", multiple=True, help="Model specs (default: all configured)")
-@click.option("--challenge", default=None, help="Solve a single challenge directory")
-@click.option("--challenges-dir", default="challenges", help="Directory for challenge files")
-@click.option("--no-submit", is_flag=True, help="Dry run — don't submit flags")
-@click.option("--coordinator-model", default=None, help="Model for coordinator (default: claude-opus-4-6)")
-@click.option("--coordinator", default="claude", type=click.Choice(["claude", "codex"]), help="Coordinator backend")
-@click.option("--max-challenges", default=10, type=int, help="Max challenges solved concurrently")
-@click.option("--msg-port", default=0, type=int, help="Operator message port (0 = auto)")
-@click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
-def main(
-    ctfd_url: str | None,
-    ctfd_token: str | None,
-    image: str,
-    models: tuple[str, ...],
-    challenge: str | None,
-    challenges_dir: str,
-    no_submit: bool,
-    coordinator_model: str | None,
-    coordinator: str,
-    max_challenges: int,
-    msg_port: int,
-    verbose: bool,
-) -> None:
-    """CTF Agent — multi-model solver swarm.
+# ── DOCTOR ────────────────────────────────────────────────────────────────────
 
-    Run without --challenge to start the full coordinator (Ctrl+C to stop).
-    """
-    _setup_logging(verbose)
+@cli.command()
+def doctor() -> None:
+    """Diagnose environment, Docker, Antigravity CLI, and CTF capabilities."""
+    console.print(BANNER)
+    settings = Settings()
 
-    settings = Settings(sandbox_image=image)
-    if ctfd_url:
-        settings.ctfd_url = ctfd_url
-    if ctfd_token:
-        settings.ctfd_token = ctfd_token
-    settings.max_concurrent_challenges = max_challenges
+    table = Table(title="System Diagnostics & Readiness", box=box.ROUNDED)
+    table.add_column("Component", style="bold white", width=22)
+    table.add_column("Status", width=12)
+    table.add_column("Details & Remediation")
 
-    model_specs = list(models) if models else list(DEFAULT_MODELS)
+    # 1. OS & Architecture
+    import platform
+    table.add_row(
+        "Host OS",
+        "[green]PASS[/green]",
+        f"{platform.system()} {platform.release()} ({platform.machine()}) — {os.cpu_count()} CPU cores",
+    )
 
-    console.print(BANNER, style="bold cyan")
-    console.print("[bold]Antigravity CLI[/bold] — autonomous CTF solver swarm")
-    console.print(f"  CTFd: {settings.ctfd_url}")
-    console.print(f"  Models: {', '.join(model_specs)}")
-    console.print(f"  Image: {settings.sandbox_image}")
-    console.print(f"  Max challenges: {max_challenges}")
-    console.print()
+    # 2. Python Environment
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    table.add_row(
+        "Python Runtime",
+        "[green]PASS[/green]" if sys.version_info >= (3, 11) else "[yellow]WARN[/yellow]",
+        f"Python {py_ver} ({sys.executable})",
+    )
 
-    if challenge:
-        asyncio.run(_run_single(settings, challenge, model_specs, no_submit, max_challenges))
+    # 3. Drive D: Storage Policy
+    ws_path = Path(settings.workspace_root)
+    drive_ok = str(ws_path).upper().startswith("D:")
+    table.add_row(
+        "Workspace Storage",
+        "[green]PASS[/green]" if drive_ok else "[yellow]WARN[/yellow]",
+        f"Configured: {settings.workspace_root} (Drive D: isolated policy)",
+    )
+
+    # 4. Antigravity CLI (agy)
+    from backend.providers.agy_cli import AgyCliProvider
+    agy_prov = AgyCliProvider(executable_path=settings.agy_cli_path)
+    if agy_prov.is_available():
+        table.add_row(
+            "Antigravity CLI",
+            "[green]PASS[/green]",
+            f"Found: {agy_prov.executable_path} (Zero-cost Gemini 3.8 Flash access)",
+        )
     else:
-        asyncio.run(_run_coordinator(settings, model_specs, challenges_dir, no_submit, coordinator_model, coordinator, max_challenges, msg_port))
+        table.add_row(
+            "Antigravity CLI",
+            "[yellow]WARN[/yellow]",
+            "agy executable not found on PATH or D:\\ADMIN\\bin\\agy.exe. Set AGY_CLI_PATH in .env",
+        )
 
+    # 5. Docker Desktop
+    docker_which = shutil.which("docker")
+    if docker_which:
+        try:
+            import subprocess
+            res = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                table.add_row("Docker Engine", "[green]PASS[/green]", f"Docker Desktop running (Engine {res.stdout.strip()})")
+            else:
+                table.add_row("Docker Engine", "[yellow]WARN[/yellow]", "Docker CLI found but daemon not responding. Start Docker Desktop.")
+        except Exception as e:
+            table.add_row("Docker Engine", "[yellow]WARN[/yellow]", f"Docker check timed out or failed: {e}")
+    else:
+        table.add_row("Docker Engine", "[red]FAIL[/red]", "Docker not found on PATH. Install Docker Desktop.")
 
-async def _run_single(
-    settings: Settings,
-    challenge_dir: str,
-    model_specs: list[str],
-    no_submit: bool,
-    max_challenges: int,
-) -> None:
-    """Run a single challenge with a swarm."""
-    from backend.agents.swarm import ChallengeSwarm
-    from backend.cost_tracker import CostTracker
-    from backend.ctfd import CTFdClient
-    from backend.prompts import ChallengeMeta
-    from backend.sandbox import cleanup_orphan_containers, configure_semaphore
-
-    max_containers = max_challenges * len(model_specs)
-    configure_semaphore(max_containers)
-    await cleanup_orphan_containers()
-
-    challenge_path = Path(challenge_dir)
-    meta_path = challenge_path / "metadata.yml"
-    if not meta_path.exists():
-        console.print(f"[red]No metadata.yml found in {challenge_dir}[/red]")
-        sys.exit(1)
-
-    meta = ChallengeMeta.from_yaml(meta_path)
-    console.print(f"[bold]Challenge:[/bold] {meta.name} ({meta.category}, {meta.value} pts)")
-
-    ctfd = CTFdClient(
-        base_url=settings.ctfd_url,
-        token=settings.ctfd_token,
-        username=settings.ctfd_user,
-        password=settings.ctfd_pass,
-    )
-    cost_tracker = CostTracker()
-
-    swarm = ChallengeSwarm(
-        challenge_dir=str(challenge_path),
-        meta=meta,
-        ctfd=ctfd,
-        cost_tracker=cost_tracker,
-        settings=settings,
-        model_specs=model_specs,
-        no_submit=no_submit,
-    )
-
+    # 6. Sandbox Docker Image
     try:
-        result = await swarm.run()
-        from backend.solver_base import FLAG_FOUND
-        if result and result.status == FLAG_FOUND:
-            console.print(f"\n[bold green]FLAG FOUND:[/bold green] {result.flag}")
+        import subprocess
+        img_check = subprocess.run(["docker", "image", "inspect", settings.sandbox_image], capture_output=True, text=True, timeout=5)
+        if img_check.returncode == 0:
+            table.add_row("Sandbox Image", "[green]PASS[/green]", f"Image '{settings.sandbox_image}' built and ready.")
         else:
-            console.print("\n[bold red]No flag found.[/bold red]")
+            table.add_row(
+                "Sandbox Image",
+                "[yellow]NOT BUILT[/yellow]",
+                f"Image '{settings.sandbox_image}' missing. Run: antigravity setup --profile lite",
+            )
+    except Exception:
+        table.add_row("Sandbox Image", "[dim]SKIPPED[/dim]", "Docker daemon inactive; using local fallback sandbox.")
 
-        console.print("\n[bold]Cost Summary:[/bold]")
-        for agent_name in cost_tracker.by_agent:
-            console.print(f"  {agent_name}: {cost_tracker.format_usage(agent_name)}")
-        console.print(f"  [bold]Total: ${cost_tracker.total_cost_usd:.2f}[/bold]")
-    finally:
-        await ctfd.close()
-
-
-async def _run_coordinator(
-    settings: Settings,
-    model_specs: list[str],
-    challenges_dir: str,
-    no_submit: bool,
-    coordinator_model: str | None,
-    coordinator_backend: str,
-    max_challenges: int,
-    msg_port: int = 0,
-) -> None:
-    """Run the full coordinator (continuous until Ctrl+C)."""
-    from backend.sandbox import cleanup_orphan_containers, configure_semaphore
-
-    max_containers = max_challenges * len(model_specs)
-    configure_semaphore(max_containers)
-    await cleanup_orphan_containers()
-    console.print(f"[bold]Starting coordinator ({coordinator_backend}, Ctrl+C to stop)...[/bold]\n")
-
-    if coordinator_backend == "codex":
-        from backend.agents.codex_coordinator import run_codex_coordinator
-        results = await run_codex_coordinator(
-            settings=settings,
-            model_specs=model_specs,
-            challenges_root=challenges_dir,
-            no_submit=no_submit,
-            coordinator_model=coordinator_model,
-            msg_port=msg_port,
-        )
-    else:
-        from backend.agents.claude_coordinator import run_claude_coordinator
-        results = await run_claude_coordinator(
-            settings=settings,
-            model_specs=model_specs,
-            challenges_root=challenges_dir,
-            no_submit=no_submit,
-            coordinator_model=coordinator_model,
-            msg_port=msg_port,
-        )
-
-    console.print("\n[bold]Final Results:[/bold]")
-    for challenge, data in results.get("results", {}).items():
-        console.print(f"  {challenge}: {data.get('flag', 'no flag')}")
-    console.print(f"\n[bold]Total cost: ${results.get('total_cost_usd', 0):.2f}[/bold]")
-
-
-@click.command()
-@click.argument("message")
-@click.option("--port", default=9400, type=int, help="Coordinator message port")
-@click.option("--host", default="127.0.0.1", help="Coordinator host")
-def msg(message: str, port: int, host: str) -> None:
-    """Send a message to the running coordinator."""
-    import json
-    import urllib.request
-
-    body = json.dumps({"message": message}).encode()
-    req = urllib.request.Request(
-        f"http://{host}:{port}/msg",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    # 7. Hardware Profile Settings
+    table.add_row(
+        "Hardware Caps",
+        "[green]PASS[/green]",
+        f"Memory Limit: {settings.container_memory_limit} | NanoCPUs: {settings.container_cpu_count} | Max Active: {settings.max_concurrent_challenges}",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-            console.print(f"[green]Sent:[/green] {data.get('queued', message[:200])}")
-    except Exception as e:
-        console.print(f"[red]Failed:[/red] {e}")
-        console.print("Is the coordinator running?")
+
+    # 8. CTFd Configuration
+    if settings.ctfd_token or (settings.ctfd_user and settings.ctfd_url != "http://localhost:8000"):
+        table.add_row("CTFd Target", "[green]CONFIGURED[/green]", f"URL: {settings.ctfd_url} (Dry-run: {settings.dry_run})")
+    else:
+        table.add_row("CTFd Target", "[dim]DEFAULT[/dim]", f"URL: {settings.ctfd_url} (Local/Testing default)")
+
+    console.print(table)
+    console.print("\n[dim]To solve challenges locally: [bold]antigravity solve --challenge <path>[/bold][/dim]\n")
+
+
+# ── SETUP ─────────────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--profile", type=click.Choice(["lite", "standard", "advanced"]), default="lite", help="Docker image profile to build")
+@click.option("--no-docker", is_flag=True, help="Skip Docker build and only configure local directories")
+def setup(profile: str, no_docker: bool) -> None:
+    """Setup directories, synthetic challenges, and build the hardware-optimized sandbox image."""
+    console.print(BANNER)
+    settings = Settings()
+    settings.ensure_directories()
+    console.print(f"[green]✔[/green] Created runtime directories at: [cyan]{settings.workspace_root}[/cyan]")
+
+    # Generate synthetic challenges for self-test
+    from backend.synthetic_generator import generate_synthetic_challenges
+    synth_dir = Path("tests") / "synthetic"
+    synth_chals = generate_synthetic_challenges(synth_dir)
+    console.print(f"[green]✔[/green] Generated {len(synth_chals)} synthetic test challenges in [cyan]{synth_dir}[/cyan]")
+
+    if no_docker:
+        console.print("[yellow]Skipping Docker image build (--no-docker selected).[/yellow]")
+        return
+
+    # Check Docker
+    if not shutil.which("docker"):
+        console.print("[red]Docker not found on PATH. Docker Desktop is required to build sandbox image.[/red]")
+        return
+
+    image_tag = f"ctf-sandbox-{profile}"
+    dockerfile = f"sandbox/Dockerfile.{profile}"
+    if not Path(dockerfile).exists():
+        console.print(f"[red]Dockerfile not found at {dockerfile}[/red]")
+        return
+
+    console.print(f"\n[bold]Building Docker Sandbox ({profile.upper()} profile)...[/bold]")
+    console.print(f"Command: docker build -f {dockerfile} -t {image_tag} .\n")
+
+    import subprocess
+    ret = subprocess.run(["docker", "build", "-f", dockerfile, "-t", image_tag, "."])
+    if ret.returncode == 0:
+        console.print(f"\n[green]✔ Sandbox image '{image_tag}' built successfully![/green]")
+    else:
+        console.print(f"\n[red]Docker build failed with code {ret.returncode}[/red]")
+
+
+# ── TOOLS ─────────────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--sandbox", is_flag=True, help="Inspect tools inside the Docker sandbox")
+def tools(sandbox: bool) -> None:
+    """List available CTF analysis tools on host and in sandbox."""
+    console.print(BANNER)
+    settings = Settings()
+
+    if not sandbox:
+        console.print("[bold]Host Environment Tools:[/bold]")
+        tool_checks = [
+            ("python", sys.executable),
+            ("git", shutil.which("git")),
+            ("docker", shutil.which("docker")),
+            ("uv", shutil.which("uv")),
+            ("agy CLI", shutil.which("agy") or shutil.which("agy.exe") or settings.agy_cli_path),
+        ]
+        table = Table(box=box.SIMPLE)
+        table.add_column("Tool", style="bold white")
+        table.add_column("Path / Status")
+        for name, path in tool_checks:
+            table.add_row(name, f"[green]{path}[/green]" if path else "[dim]Not installed[/dim]")
+        console.print(table)
+        console.print("[dim]Use --sandbox to inspect tools inside the Docker container.[/dim]")
+    else:
+        async def _run_sandbox_check():
+            from backend.engine.capabilities import detect_sandbox_capabilities
+            from backend.sandbox import DockerSandbox
+            box_inst = DockerSandbox(image=settings.sandbox_image, workspace_root=settings.workspace_root)
+            console.print(f"Spinning up test sandbox '{settings.sandbox_image}'...")
+            try:
+                await box_inst.start()
+                inv = await detect_sandbox_capabilities(box_inst)
+                console.print(Panel(inv.summary_markdown(), title="Sandbox Capabilities", border_style="cyan"))
+            finally:
+                await box_inst.stop()
+        asyncio.run(_run_sandbox_check())
+
+
+# ── PULL ──────────────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--url", default=None, help="CTFd URL")
+@click.option("--token", default=None, help="CTFd API token")
+@click.option("--user", default=None, help="CTFd Username")
+@click.option("--password", default=None, help="CTFd Password")
+@click.option("--output", default="challenges", help="Output directory")
+@click.option("--unlock-paid-hints", is_flag=True, help="Authorize spending points on paid hints (DANGEROUS)")
+def pull(url: str | None, token: str | None, user: str | None, password: str | None, output: str, unlock_paid_hints: bool) -> None:
+    """Safely pull challenges and distfiles from a CTFd competition."""
+    console.print(BANNER)
+    settings = Settings()
+    ctfd_url = url or settings.ctfd_url
+    ctfd_token = token or settings.ctfd_token
+    ctfd_user = user or settings.ctfd_user
+    ctfd_pass = password or settings.ctfd_pass
+
+    from backend.ctfd import CTFdClient
+
+    async def _do_pull():
+        client = CTFdClient(
+            base_url=ctfd_url,
+            token=ctfd_token,
+            username=ctfd_user,
+            password=ctfd_pass,
+            unlock_paid_hints=unlock_paid_hints,
+        )
+        try:
+            console.print(f"Connecting to CTFd at [cyan]{ctfd_url}[/cyan]...")
+            stubs = await client.fetch_challenge_stubs()
+            console.print(f"Discovered [bold green]{len(stubs)}[/bold green] active challenges.")
+
+            with console.status("[bold cyan]Downloading challenges...[/bold cyan]"):
+                for stub in stubs:
+                    ch_dir = await client.pull_challenge(stub, output)
+                    console.print(f"  [green]✔[/green] {stub.get('name')} -> [dim]{ch_dir}[/dim]")
+        finally:
+            await client.close()
+
+    asyncio.run(_do_pull())
+
+
+# ── SOLVE ─────────────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--challenge", required=True, help="Path to challenge directory")
+@click.option("--model", default=None, help="Reasoning model spec (default: agy/gemini-3.8-flash-medium)")
+@click.option("--no-docker", is_flag=True, help="Run in local isolated subprocess sandbox instead of Docker")
+@click.option("--submit", is_flag=True, help="Submit flag to CTFd if found (default is dry-run)")
+@click.option("--max-turns", default=25, type=int, help="Maximum reasoning turns")
+def solve(challenge: str, model: str | None, no_docker: bool, submit: bool, max_turns: int) -> None:
+    """Solve an individual CTF challenge using the autonomous reasoning loop."""
+    console.print(BANNER)
+    settings = Settings()
+    if max_turns:
+        settings.max_turns_per_challenge = max_turns
+
+    ch_path = Path(challenge)
+    if not ch_path.exists():
+        console.print(f"[red]Challenge path not found: {challenge}[/red]")
         sys.exit(1)
+
+    from backend.ctfd import CTFdClient
+    from backend.engine.orchestrator import ChallengeOrchestrator
+    from backend.providers.factory import get_provider
+    from backend.sandbox import DockerSandbox, LocalSubprocessSandbox
+
+    provider = get_provider(spec=model, settings=settings)
+    console.print(f"Reasoning Provider: [bold cyan]{provider.name}[/bold cyan]")
+    console.print(f"Execution Target: [bold white]{ch_path.resolve()}[/bold white]")
+    console.print(f"Mode: {'[green]Live Submission[/green]' if submit else '[yellow]Dry Run (Safe Verification)[/yellow]'}")
+
+    ctfd_client = None
+    if submit and settings.ctfd_token:
+        ctfd_client = CTFdClient(
+            base_url=settings.ctfd_url,
+            token=settings.ctfd_token,
+            dry_run=False,
+        )
+
+    if no_docker:
+        sandbox = LocalSubprocessSandbox(challenge_dir=str(ch_path), workspace_root=settings.workspace_root)
+        console.print("Sandbox: [yellow]Local Subprocess Sandbox[/yellow]")
+    else:
+        sandbox = DockerSandbox(
+            image=settings.sandbox_image,
+            challenge_dir=str(ch_path),
+            memory_limit=settings.container_memory_limit,
+            cpu_count=settings.container_cpu_count,
+            workspace_root=settings.workspace_root,
+        )
+        console.print(f"Sandbox: [cyan]Docker Container ({settings.sandbox_image})[/cyan]")
+
+    orchestrator = ChallengeOrchestrator(
+        challenge_dir=ch_path,
+        provider=provider,
+        sandbox=sandbox,
+        settings=settings,
+        ctfd_client=ctfd_client,
+        dry_run=not submit,
+    )
+
+    with console.status("[bold green]Agent investigating challenge...[/bold green]"):
+        report = asyncio.run(orchestrator.solve())
+
+    console.print()
+    if report.status == "solved":
+        console.print(Panel(
+            f"[bold green]CHALLENGE SOLVED![/bold green]\n\n"
+            f"Flag: [bold yellow]{report.flag}[/bold yellow]\n"
+            f"Turns: {report.turns} | Time: {report.duration_seconds:.2f}s | Tokens: {report.total_tokens:,}\n"
+            f"Report saved to: {ch_path / 'report.md'}",
+            title="Result",
+            border_style="green",
+        ))
+    else:
+        console.print(Panel(
+            f"[bold red]Status: {report.status.upper()}[/bold red]\n\n"
+            f"Turns: {report.turns} | Time: {report.duration_seconds:.2f}s\n"
+            f"Investigation log: {ch_path / 'report.md'}",
+            title="Result",
+            border_style="red",
+        ))
+
+
+# ── BENCHMARK ─────────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--suite", default="tests/synthetic", help="Path to benchmark challenge directory")
+@click.option("--model", default="mock/default", help="Reasoning model spec (default: mock/default)")
+@click.option("--no-docker", is_flag=True, default=True, help="Use local sandbox for fast benchmarks")
+@click.option("--report-file", default="benchmark_report.md", help="Output markdown report file")
+def benchmark(suite: str, model: str, no_docker: bool, report_file: str) -> None:
+    """Run benchmark evaluation across a challenge suite and generate metrics report."""
+    console.print(BANNER)
+    settings = Settings()
+    suite_path = Path(suite)
+    if not suite_path.exists():
+        console.print(f"[yellow]Suite directory '{suite}' does not exist. Generating synthetic suite...[/yellow]")
+        from backend.synthetic_generator import generate_synthetic_challenges
+        generate_synthetic_challenges(suite_path)
+
+    from backend.benchmark import BenchmarkRunner
+    from backend.providers.factory import get_provider
+
+    provider = get_provider(spec=model, settings=settings)
+    console.print(f"Running benchmark suite: [cyan]{suite_path}[/cyan] with model: [bold]{provider.name}[/bold]\n")
+
+    runner = BenchmarkRunner(
+        challenges_dir=suite_path,
+        provider=provider,
+        settings=settings,
+        use_docker=not no_docker,
+    )
+
+    with console.status("[bold green]Executing benchmark suite...[/bold green]"):
+        summary = asyncio.run(runner.run())
+
+    md_report = summary.to_markdown()
+    Path(report_file).write_text(md_report, encoding="utf-8")
+
+    console.print(Panel(
+        f"[bold]Benchmark Completed[/bold]\n"
+        f"Solved: [bold green]{summary.solved_count}[/bold green] / {summary.total_challenges} "
+        f"([cyan]{summary.solve_rate_percent:.1f}%[/cyan])\n"
+        f"Runtime: {summary.total_time_seconds:.2f}s | Total Tokens: {summary.total_tokens:,}\n"
+        f"Report saved: [bold cyan]{report_file}[/bold cyan]",
+        title="Summary",
+        border_style="cyan",
+    ))
+
+
+# ── CLEANUP ───────────────────────────────────────────────────────────────────
+
+@cli.command()
+def cleanup() -> None:
+    """Safely remove leftover CTF Docker containers and clean temporary workspaces."""
+    console.print(BANNER)
+    settings = Settings()
+
+    # 1. Clean orphan Docker containers
+    from backend.sandbox import cleanup_orphan_containers
+    count = asyncio.run(cleanup_orphan_containers())
+    console.print(f"[green]✔[/green] Removed {count} dangling CTF container(s).")
+
+    # 2. Clean temporary workspaces on Drive D:
+    ws_dir = Path(settings.workspace_root)
+    cleaned_dirs = 0
+    if ws_dir.exists():
+        for item in ws_dir.iterdir():
+            if item.is_dir() and (item.name.startswith("ws-") or item.name.startswith("local-ws-")):
+                try:
+                    shutil.rmtree(item, ignore_errors=True)
+                    cleaned_dirs += 1
+                except Exception:
+                    pass
+    console.print(f"[green]✔[/green] Cleaned {cleaned_dirs} temporary workspace folder(s) in {ws_dir}.")
+
+
+def main() -> None:
+    cli()
 
 
 if __name__ == "__main__":

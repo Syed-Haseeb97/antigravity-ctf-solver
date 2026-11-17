@@ -1,0 +1,5 @@
+name: B64 Decode
+category: crypto
+value: 50
+description: Decode the attached base64 encoded secret string.
+solves: 120

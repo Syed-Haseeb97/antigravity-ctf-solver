@@ -1,0 +1,22 @@
+{
+  "challenge": "Appended PNG",
+  "category": "stego",
+  "status": "solved",
+  "flag": "flag{appended_bytes_stego_found}",
+  "turns": 1,
+  "duration_seconds": 1.58,
+  "total_tokens": 152,
+  "timeline": [
+    {
+      "turn": 1,
+      "thought": "Found appended flag after IEND chunk",
+      "hypothesis": "Appended plaintext bytes",
+      "action": "submit_flag",
+      "command": "flag{appended_bytes_stego_found}",
+      "output": "VERIFIED: Flag 'flag{appended_bytes_stego_found}' accepted.",
+      "exit_code": 0,
+      "duration_s": 0.01,
+      "tokens": 152
+    }
+  ]
+}

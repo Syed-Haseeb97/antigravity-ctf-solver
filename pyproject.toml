@@ -1,20 +1,18 @@
 [project]
 name = "antigravity"
-version = "1.0.0"
-description = "Antigravity CLI — autonomous CTF solver swarm (fork of verialabs/ctf-agent)"
-requires-python = ">=3.14"
+version = "2.0.0"
+description = "Antigravity CLI — Hardware-friendly autonomous CTF solver workstation powered by Gemini 3.8 Flash"
+requires-python = ">=3.11"
 dependencies = [
-    "pydantic-ai[bedrock,openai,google]",
-    "pydantic-settings",
-    "genai-prices",
-    "boto3",
-    "aiodocker",
-    "claude-agent-sdk",
-    "httpx",
-    "pyyaml",
-    "rich",
-    "click",
-    "markdownify",
+    "pydantic-settings>=2.0",
+    "aiodocker>=0.27",
+    "httpx>=0.28",
+    "pyyaml>=6.0",
+    "rich>=14.0",
+    "click>=8.1",
+    "markdownify>=1.0",
+    "pydantic-ai>=2.0",
+    "genai-prices>=0.2",
 ]
 
 [project.scripts]
@@ -32,8 +30,8 @@ package = true
 dev = [
     "pytest>=9.0",
     "pytest-asyncio>=1.3",
+    "respx>=0.23",
     "ruff>=0.14",
-    "ty>=0.0.2",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -52,9 +50,3 @@ ignore = ["E501", "SIM105", "SIM115", "PTH123"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["backend"]
-
-[tool.ty.rules]
-unresolved-import = "ignore"
-
-[tool.ty.environment]
-python-version = "3.14"

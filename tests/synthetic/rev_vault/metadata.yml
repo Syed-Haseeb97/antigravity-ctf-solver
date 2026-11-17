@@ -1,0 +1,5 @@
+name: Vault Logic
+category: rev
+value: 100
+description: Analyze the Python verification logic to recover the secret password.
+solves: 85

@@ -1,0 +1,6 @@
+name: Mini RSA
+category: crypto
+value: 100
+description: Tiny primes were used for this RSA implementation. Factor n to find the
+  flag.
+solves: 65

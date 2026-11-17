@@ -1,0 +1,30 @@
+# CTF challenge solver sandbox image — Standard Profile
+# Extends Lite profile with radare2, volatility3, zsteg, and forensics carving tools.
+# Build command: docker build -f sandbox/Dockerfile.standard -t ctf-sandbox-standard .
+
+FROM ctf-sandbox-lite:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── Additional forensics & filesystem utilities ──────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    foremost sleuthkit ruby ruby-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── zsteg (Ruby gem for PNG/BMP steg analysis) ───────────────────────────────
+RUN gem install zsteg
+
+# ── radare2 (fast reverse engineering suite) ─────────────────────────────────
+RUN git clone --depth=1 https://github.com/radareorg/radare2 /tmp/r2 \
+    && cd /tmp/r2 && bash sys/install.sh --install \
+    && ldconfig \
+    && rm -rf /tmp/r2
+
+# ── Volatility 3 (memory forensics) ──────────────────────────────────────────
+RUN pip3 install --no-cache-dir volatility3 ropgadget
+
+# ── Update tools inventory ───────────────────────────────────────────────────
+RUN printf "\n- Extended Tools (Standard Profile):\n\
+  - Reverse Engineering: radare2 (r2, rabin2, rasm2), ROPgadget\n\
+  - Advanced Forensics: foremost, sleuthkit (fls, icat), volatility3\n\
+  - Steganography: zsteg\n" >> /tools.txt

@@ -1,0 +1,22 @@
+{
+  "challenge": "Single Byte XOR",
+  "category": "crypto",
+  "status": "solved",
+  "flag": "flag{xor_single_byte_cipher_cracked}",
+  "turns": 1,
+  "duration_seconds": 5.28,
+  "total_tokens": 199,
+  "timeline": [
+    {
+      "turn": 1,
+      "thought": "Brute force single-byte XOR key",
+      "hypothesis": "Single byte XOR key",
+      "action": "bash",
+      "command": "python3 -c \"data = bytes.fromhex(open('distfiles/cipher.hex').read().strip()); print([bytes([b ^ k for b in data]) for k in range(256) if b'flag{' in bytes([b ^ k for b in data])][0].decode())\"",
+      "output": "flag{xor_single_byte_cipher_cracked}",
+      "exit_code": 0,
+      "duration_s": 0.01,
+      "tokens": 199
+    }
+  ]
+}

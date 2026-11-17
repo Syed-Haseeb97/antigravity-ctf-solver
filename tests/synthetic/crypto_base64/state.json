@@ -1,0 +1,22 @@
+{
+  "challenge": "B64 Decode",
+  "category": "crypto",
+  "status": "solved",
+  "flag": "flag{base64_decoded_successfully}",
+  "turns": 1,
+  "duration_seconds": 4.71,
+  "total_tokens": 169,
+  "timeline": [
+    {
+      "turn": 1,
+      "thought": "Read and decode base64 secret file",
+      "hypothesis": "File contains base64 string",
+      "action": "bash",
+      "command": "python3 -c \"import base64; print(base64.b64decode(open('distfiles/secret.txt').read().strip()).decode())\"",
+      "output": "flag{base64_decoded_successfully}",
+      "exit_code": 0,
+      "duration_s": 0.01,
+      "tokens": 169
+    }
+  ]
+}

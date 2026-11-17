@@ -1,0 +1,22 @@
+{
+  "challenge": "EXIF Hunter",
+  "category": "forensics",
+  "status": "solved",
+  "flag": "flag{exif_metadata_extracted_properly}",
+  "turns": 1,
+  "duration_seconds": 2.32,
+  "total_tokens": 157,
+  "timeline": [
+    {
+      "turn": 1,
+      "thought": "Extract comment metadata from JPEG",
+      "hypothesis": "Comment contains flag",
+      "action": "submit_flag",
+      "command": "flag{exif_metadata_extracted_properly}",
+      "output": "VERIFIED: Flag 'flag{exif_metadata_extracted_properly}' accepted.",
+      "exit_code": 0,
+      "duration_s": 0.01,
+      "tokens": 157
+    }
+  ]
+}

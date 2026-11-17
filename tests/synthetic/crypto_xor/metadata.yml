@@ -1,0 +1,6 @@
+name: Single Byte XOR
+category: crypto
+value: 100
+description: The secret was encrypted with a single-byte XOR key. Recover the key
+  and plaintext.
+solves: 80

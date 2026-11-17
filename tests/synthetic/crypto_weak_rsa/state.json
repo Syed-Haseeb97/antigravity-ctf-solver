@@ -1,0 +1,22 @@
+{
+  "challenge": "Mini RSA",
+  "category": "crypto",
+  "status": "solved",
+  "flag": "flag{rsa_m42_factored}",
+  "turns": 1,
+  "duration_seconds": 2.5,
+  "total_tokens": 159,
+  "timeline": [
+    {
+      "turn": 1,
+      "thought": "Factor n=3233 (p=61, q=53) and submit flag",
+      "hypothesis": "Small prime factorization",
+      "action": "submit_flag",
+      "command": "flag{rsa_m42_factored}",
+      "output": "VERIFIED: Flag 'flag{rsa_m42_factored}' accepted.",
+      "exit_code": 0,
+      "duration_s": 0.01,
+      "tokens": 159
+    }
+  ]
+}

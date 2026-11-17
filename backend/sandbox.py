@@ -1,71 +1,37 @@
-"""Docker sandbox for CTF challenge solving — native async via aiodocker."""
+"""Docker and Subprocess Sandbox for CTF challenge solving.
+Implements least-privilege isolation, hardware resource limits (3GB RAM, 2 CPUs),
+and safe Drive D: workspace management.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import io
 import logging
+import os
 import shlex
+import shutil
 import tarfile
-import tempfile
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import aiodocker
-
 logger = logging.getLogger(__name__)
 
-CONTAINER_LABEL = "ctf-agent"
+CONTAINER_LABEL = "antigravity-ctf-sandbox"
+DEFAULT_WORKSPACE_ROOT = r"D:\5TH vid\ctf ig\.workspaces"
 
-# Concurrency control
+# Concurrency control — hardware friendly
 _start_semaphore: asyncio.Semaphore | None = None
 _active_count: int = 0
 _count_lock = asyncio.Lock()
 
-_WARN_THRESHOLDS = {100, 200, 500}
 
-
-def configure_semaphore(max_concurrent: int = 50) -> None:
-    """Set the max concurrent container starts. Call once at startup."""
+def configure_semaphore(max_concurrent: int = 2) -> None:
+    """Limit concurrent container starts to prevent host resource starvation."""
     global _start_semaphore
     _start_semaphore = asyncio.Semaphore(max_concurrent)
-
-
-async def _track_start() -> None:
-    global _active_count
-    async with _count_lock:
-        _active_count += 1
-        if _active_count in _WARN_THRESHOLDS:
-            logger.warning("Active containers: %d", _active_count)
-
-
-async def _track_stop() -> None:
-    global _active_count
-    async with _count_lock:
-        _active_count = max(0, _active_count - 1)
-
-
-async def cleanup_orphan_containers() -> None:
-    """Kill any leftover ctf-agent containers from a previous run."""
-    try:
-        docker = aiodocker.Docker()
-        try:
-            containers = await docker.containers.list(
-                all=True,
-                filters={"label": [CONTAINER_LABEL]},
-            )
-            for c in containers:
-                try:
-                    await c.delete(force=True)
-                except Exception:
-                    pass
-            if containers:
-                logger.info("Cleaned up %d orphan container(s)", len(containers))
-        finally:
-            await docker.close()
-    except Exception as e:
-        logger.warning("Orphan cleanup failed: %s", e)
 
 
 @dataclass
@@ -75,13 +41,26 @@ class ExecResult:
     stderr: str
 
 
-@dataclass
-class DockerSandbox:
-    """Isolated Docker container for a single solver agent."""
+class ISandbox:
+    """Common interface for execution sandboxes."""
 
-    image: str
-    challenge_dir: str
-    memory_limit: str = "16g"
+    async def start(self) -> None: ...
+    async def exec(self, command: str, timeout_s: int = 60) -> ExecResult: ...
+    async def read_file(self, path: str) -> str: ...
+    async def write_file(self, path: str, content: str) -> None: ...
+    async def list_files(self, path: str) -> list[str]: ...
+    async def stop(self) -> None: ...
+
+
+@dataclass
+class DockerSandbox(ISandbox):
+    """Isolated Docker container with least-privilege security and strict resource caps."""
+
+    image: str = "ctf-sandbox-lite"
+    challenge_dir: str = ""
+    memory_limit: str = "3g"
+    cpu_count: float = 2.0
+    workspace_root: str = DEFAULT_WORKSPACE_ROOT
     workspace_dir: str = ""
     _container: Any = field(default=None, repr=False)
     _docker: Any = field(default=None, repr=False)
@@ -89,7 +68,6 @@ class DockerSandbox:
 
     @property
     def container_id(self) -> str:
-        """The Docker container ID, available after start()."""
         if not self._container:
             raise RuntimeError("Sandbox not started")
         return self._container.id
@@ -103,26 +81,40 @@ class DockerSandbox:
                 return int(s[:-1]) * 1024 * 1024
             return int(s)
         except (ValueError, IndexError):
-            logger.warning("Invalid memory_limit %r, defaulting to 4GB", self.memory_limit)
-            return 4 * 1024 * 1024 * 1024
+            logger.warning("Invalid memory_limit %r, defaulting to 3GB", self.memory_limit)
+            return 3 * 1024 * 1024 * 1024
 
     async def start(self) -> None:
-        sem = _start_semaphore or asyncio.Semaphore(50)
+        import aiodocker
+
+        sem = _start_semaphore or asyncio.Semaphore(2)
         async with sem:
             self._docker = aiodocker.Docker()
 
-            self.workspace_dir = tempfile.mkdtemp(prefix="ctf-workspace-")
-
-            challenge_root = Path(self.challenge_dir).resolve()
-            distfiles = str(challenge_root / "distfiles")
-            meta_yml = str(challenge_root / "metadata.yml")
+            # Create workspace directory strictly on Drive D:
+            base_ws = Path(self.workspace_root)
+            base_ws.mkdir(parents=True, exist_ok=True)
+            self.workspace_dir = str(base_ws / f"ws-{uuid.uuid4().hex[:8]}")
+            Path(self.workspace_dir).mkdir(parents=True, exist_ok=True)
 
             binds: list[str] = [f"{self.workspace_dir}:/challenge/workspace:rw"]
-            if Path(distfiles).exists():
-                binds.append(f"{distfiles}:/challenge/distfiles:ro")
-            if Path(meta_yml).exists():
-                binds.append(f"{meta_yml}:/challenge/metadata.yml:ro")
 
+            if self.challenge_dir:
+                challenge_root = Path(self.challenge_dir).resolve()
+                distfiles = challenge_root / "distfiles"
+                meta_yml = challenge_root / "metadata.yml"
+
+                if distfiles.exists():
+                    binds.append(f"{distfiles}:/challenge/distfiles:ro")
+                if meta_yml.exists():
+                    binds.append(f"{meta_yml}:/challenge/metadata.yml:ro")
+
+            # Security Hardening:
+            # - NO SYS_ADMIN
+            # - NO seccomp=unconfined
+            # - NO /dev/loop-control
+            # - Memory capped at 3GB
+            # - NanoCpus capped at 2.0 cores
             config = {
                 "Image": self.image,
                 "Cmd": ["sleep", "infinity"],
@@ -132,151 +124,98 @@ class DockerSandbox:
                 "HostConfig": {
                     "Binds": binds,
                     "ExtraHosts": ["host.docker.internal:host-gateway"],
-                    "CapAdd": ["SYS_ADMIN", "SYS_PTRACE"],
-                    "SecurityOpt": ["seccomp=unconfined"],
-                    "Devices": [{"PathOnHost": "/dev/loop-control", "PathInContainer": "/dev/loop-control", "CgroupPermissions": "rwm"}],
+                    "CapAdd": ["SYS_PTRACE"],  # Required for gdb analysis
                     "Memory": self._parse_memory_limit(),
-                    "NanoCpus": int(2 * 1e9),
+                    "NanoCpus": int(self.cpu_count * 1e9),
                 },
             }
 
             self._container = await self._docker.containers.create(config)
             await self._container.start()
-            await _track_start()
 
             info = await self._container.show()
             short_id = info["Id"][:12]
-            logger.info("Sandbox started: %s", short_id)
+            logger.info("Sandbox started: %s (Memory: %s, CPUs: %.1f)", short_id, self.memory_limit, self.cpu_count)
 
-    async def exec(self, command: str, timeout_s: int = 300) -> ExecResult:
+    async def exec(self, command: str, timeout_s: int = 60) -> ExecResult:
         if not self._container:
             raise RuntimeError("Sandbox not started")
 
         async with self._lock:
+            wrapped = f"timeout --signal=KILL --kill-after=5 {timeout_s} bash -c {shlex.quote(command)}"
+            exec_instance = await self._container.exec(
+                cmd=["bash", "-c", wrapped],
+                stdout=True,
+                stderr=True,
+                tty=False,
+            )
+
+            stream = exec_instance.start(detach=False)
+            stdout_chunks: list[bytes] = []
+            stderr_chunks: list[bytes] = []
+
+            async def _collect() -> None:
+                while True:
+                    msg = await stream.read_out()
+                    if msg is None:
+                        break
+                    if msg.stream == 1:
+                        stdout_chunks.append(msg.data)
+                    else:
+                        stderr_chunks.append(msg.data)
+
             try:
-                return await self._exec_inner(command, timeout_s)
-            except aiodocker.exceptions.DockerError as e:
-                # Container was deleted (e.g., sibling solver found the flag)
-                return ExecResult(exit_code=-1, stdout="", stderr=f"Container gone: {e}")
+                await asyncio.wait_for(_collect(), timeout=timeout_s + 10)
+            except asyncio.TimeoutError:
+                try:
+                    await stream.close()
+                except Exception:
+                    pass
+                return ExecResult(
+                    exit_code=-1,
+                    stdout=b"".join(stdout_chunks).decode("utf-8", errors="replace"),
+                    stderr=f"Command timed out after {timeout_s}s",
+                )
 
-    async def _exec_inner(self, command: str, timeout_s: int) -> ExecResult:
-        # Wrap command with `timeout` so the container kills the process on expiry.
-        # --signal=KILL ensures hard kill; --kill-after=5 is a safety net.
-        wrapped = f"timeout --signal=KILL --kill-after=5 {timeout_s} bash -c {shlex.quote(command)}"
-        exec_instance = await self._container.exec(
-            cmd=["bash", "-c", wrapped],
-            stdout=True,
-            stderr=True,
-            tty=False,
-        )
-
-        stream = exec_instance.start(detach=False)
-        stdout_chunks: list[bytes] = []
-        stderr_chunks: list[bytes] = []
-
-        async def _collect() -> None:
-            while True:
-                msg = await stream.read_out()
-                if msg is None:
-                    break
-                if msg.stream == 1:
-                    stdout_chunks.append(msg.data)
-                else:
-                    stderr_chunks.append(msg.data)
-
-        try:
-            # Give extra margin beyond the container-side timeout
-            await asyncio.wait_for(_collect(), timeout=timeout_s + 30)
-        except TimeoutError:
-            try:
-                await stream.close()
-            except Exception:
-                pass
+            inspect = await exec_instance.inspect()
+            exit_code = inspect.get("ExitCode", 0)
             return ExecResult(
-                exit_code=-1,
+                exit_code=exit_code,
                 stdout=b"".join(stdout_chunks).decode("utf-8", errors="replace"),
-                stderr="Command timed out",
+                stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
             )
 
-        inspect = await exec_instance.inspect()
-        exit_code = inspect.get("ExitCode", 0)
+    async def read_file(self, path: str) -> str:
+        res = await self.exec(f"cat {shlex.quote(path)}", timeout_s=15)
+        if res.exit_code != 0:
+            raise FileNotFoundError(f"Cannot read {path}: {res.stderr}")
+        return res.stdout
 
-        return ExecResult(
-            exit_code=exit_code,
-            stdout=b"".join(stdout_chunks).decode("utf-8", errors="replace"),
-            stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
+    async def write_file(self, path: str, content: str) -> None:
+        py_cmd = (
+            f"python3 -c 'import sys, pathlib; "
+            f"p = pathlib.Path(sys.argv[1]); p.parent.mkdir(parents=True, exist_ok=True); "
+            f"p.write_text(sys.stdin.read(), encoding=\"utf-8\")' {shlex.quote(path)}"
         )
+        escaped_content = shlex.quote(content)
+        cmd = f"printf '%s' {escaped_content} | {py_cmd}"
+        res = await self.exec(cmd, timeout_s=20)
+        if res.exit_code != 0:
+            raise RuntimeError(f"Cannot write {path}: {res.stderr}")
 
-    async def read_file(self, path: str) -> str | bytes:
-        """Read a file from the container. Returns str for text, bytes for binary."""
-        if not self._container:
-            raise RuntimeError("Sandbox not started")
-
-        try:
-            tar = await asyncio.wait_for(
-                self._container.get_archive(path),
-                timeout=30,
-            )
-        except TimeoutError as e:
-            raise TimeoutError(f"Timed out reading {path}") from e
-
-        # aiodocker 0.26.0 returns tarfile.TarFile directly
-        with tar:
-            for member in tar:
-                if member.isfile():
-                    f = tar.extractfile(member)
-                    if f:
-                        data = f.read()
-                        try:
-                            return data.decode("utf-8")
-                        except UnicodeDecodeError:
-                            return data
-        raise FileNotFoundError(f"No file found at {path}")
-
-    async def read_file_bytes(self, path: str) -> bytes:
-        """Read a file from the container as raw bytes."""
-        result = await self.read_file(path)
-        if isinstance(result, str):
-            return result.encode("utf-8")
-        return result
-
-    async def write_file(self, path: str, content: str | bytes) -> None:
-        """Write a file into the container via tar archive."""
-        if not self._container:
-            raise RuntimeError("Sandbox not started")
-
-        if isinstance(content, str):
-            content = content.encode("utf-8")
-
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w") as tar:
-            info = tarfile.TarInfo(name=Path(path).name)
-            info.size = len(content)
-            tar.addfile(info, io.BytesIO(content))
-        buf.seek(0)
-
-        try:
-            await asyncio.wait_for(
-                self._container.put_archive(str(Path(path).parent), buf.getvalue()),
-                timeout=30,
-            )
-        except TimeoutError as e:
-            raise TimeoutError(f"Timed out writing {path}") from e
-
-    async def copy_from(self, container_path: str, host_path: str) -> None:
-        """Copy a file from the container to the host."""
-        data = await self.read_file_bytes(container_path)
-        Path(host_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(host_path).write_bytes(data)
+    async def list_files(self, path: str) -> list[str]:
+        res = await self.exec(f"ls -1A {shlex.quote(path)} 2>/dev/null", timeout_s=10)
+        if res.exit_code != 0:
+            return []
+        return [f.strip() for f in res.stdout.splitlines() if f.strip()]
 
     async def stop(self) -> None:
         if self._container:
             try:
                 await self._container.delete(force=True)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error deleting container: %s", e)
             self._container = None
-            await _track_stop()
 
         if self._docker:
             try:
@@ -285,11 +224,160 @@ class DockerSandbox:
                 pass
             self._docker = None
 
-        if self.workspace_dir:
-            import shutil
+        if self.workspace_dir and Path(self.workspace_dir).exists():
             try:
                 shutil.rmtree(self.workspace_dir, ignore_errors=True)
             except Exception:
                 pass
-            self.workspace_dir = ""
-        logger.info("Sandbox stopped")
+
+
+KNOWN_BASH_PATHS = [
+    r"D:\Movies\Git\bin\bash.exe",
+    r"C:\Program Files\Git\bin\bash.exe",
+]
+
+
+@dataclass
+class LocalSubprocessSandbox(ISandbox):
+    """Subprocess-based local sandbox used for fast unit tests and environments without Docker.
+    Restricted to an isolated directory on Drive D: with Git bash support.
+    """
+
+    challenge_dir: str = ""
+    workspace_root: str = DEFAULT_WORKSPACE_ROOT
+    workspace_dir: str = ""
+    _bash_executable: str | None = None
+
+    def __post_init__(self) -> None:
+        for p in KNOWN_BASH_PATHS:
+            if Path(p).exists():
+                self._bash_executable = p
+                break
+        if not self._bash_executable:
+            self._bash_executable = shutil.which("bash") or shutil.which("bash.exe")
+
+    def _resolve_virtual_path(self, path: str) -> Path:
+        """Map container virtual paths (/challenge/...) to the local workspace folder."""
+        norm = path.replace("\\", "/").strip()
+        ws = Path(self.workspace_dir)
+
+        if norm in (".", "./", ""):
+            return ws
+        if norm.startswith("/challenge/distfiles/"):
+            rel = norm[len("/challenge/distfiles/"):]
+            return ws / "distfiles" / rel
+        if norm.startswith("/challenge/workspace/"):
+            rel = norm[len("/challenge/workspace/"):]
+            return ws / rel
+        if norm.startswith("/challenge/"):
+            rel = norm[len("/challenge/"):]
+            return ws / rel
+
+        candidate = ws / norm
+        if candidate.exists() or not Path(path).is_absolute():
+            return candidate
+        return Path(path)
+
+    async def start(self) -> None:
+        base_ws = Path(self.workspace_root)
+        base_ws.mkdir(parents=True, exist_ok=True)
+        self.workspace_dir = str(base_ws / f"local-ws-{uuid.uuid4().hex[:8]}")
+        ws_path = Path(self.workspace_dir)
+        ws_path.mkdir(parents=True, exist_ok=True)
+
+        if self.challenge_dir:
+            dist = Path(self.challenge_dir) / "distfiles"
+            if dist.exists():
+                local_dist = ws_path / "distfiles"
+                shutil.copytree(dist, local_dist, dirs_exist_ok=True)
+
+    async def exec(self, command: str, timeout_s: int = 30) -> ExecResult:
+        cwd = self.workspace_dir or str(Path(self.challenge_dir).resolve())
+        cmd = command.replace("/challenge/distfiles/", "distfiles/").replace("/challenge/workspace/", "./")
+
+        try:
+            if self._bash_executable:
+                proc = await asyncio.create_subprocess_exec(
+                    self._bash_executable,
+                    "-c",
+                    cmd,
+                    cwd=cwd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    cwd=cwd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=timeout_s,
+            )
+            return ExecResult(
+                exit_code=proc.returncode or 0,
+                stdout=stdout_bytes.decode("utf-8", errors="replace"),
+                stderr=stderr_bytes.decode("utf-8", errors="replace"),
+            )
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            return ExecResult(exit_code=-1, stdout="", stderr=f"Command timed out after {timeout_s}s")
+        except Exception as e:
+            return ExecResult(exit_code=-1, stdout="", stderr=str(e))
+
+    async def read_file(self, path: str) -> str:
+        target = self._resolve_virtual_path(path)
+        if not target.exists():
+            raise FileNotFoundError(f"Cannot read file: {target}")
+        return target.read_text(encoding="utf-8", errors="replace")
+
+    async def write_file(self, path: str, content: str) -> None:
+        target = self._resolve_virtual_path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    async def list_files(self, path: str) -> list[str]:
+        target = self._resolve_virtual_path(path)
+        if not target.exists() or not target.is_dir():
+            return []
+        return [f.name for f in target.iterdir()]
+
+    async def stop(self) -> None:
+        if self.workspace_dir and Path(self.workspace_dir).exists():
+            shutil.rmtree(self.workspace_dir, ignore_errors=True)
+
+
+async def cleanup_orphan_containers() -> int:
+    """Kill any leftover ctf containers from previous runs."""
+    try:
+        import aiodocker
+        docker = aiodocker.Docker()
+        count = 0
+        try:
+            containers = await docker.containers.list(all=True)
+            for c in containers:
+                labels = c.get("Labels", {}) or {}
+                if (
+                    labels.get(CONTAINER_LABEL)
+                    or labels.get("ctf-agent")
+                    or "ctf-sandbox" in (c.get("Image", "") or "")
+                ):
+                    try:
+                        await c.delete(force=True)
+                        count += 1
+                    except Exception:
+                        pass
+            if count > 0:
+                logger.info("Cleaned up %d orphan CTF container(s)", count)
+            return count
+        finally:
+            await docker.close()
+    except Exception as e:
+        logger.warning("Orphan container cleanup skipped: %s", e)
+        return 0

@@ -1,0 +1,5 @@
+name: Appended PNG
+category: stego
+value: 100
+description: Check what lies past the image trailer.
+solves: 70

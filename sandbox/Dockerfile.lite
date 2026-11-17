@@ -1,0 +1,51 @@
+# CTF challenge solver sandbox image — Lite Profile (Hardware-optimized)
+# Minimal footprint (<1.5 GB), fast build, low memory (suitable for 16GB RAM / 4-core laptops).
+# Build command: docker build -f sandbox/Dockerfile.lite -t ctf-sandbox-lite .
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TERM=xterm
+
+# ── Core system packages ──────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Networking
+    netcat-openbsd curl wget \
+    # Binary analysis
+    binutils file xxd bsdmainutils gdb ltrace strace \
+    # Forensics / steg / image analysis
+    exiftool steghide pngcheck \
+    # OCR
+    tesseract-ocr tesseract-ocr-eng \
+    # Crypto / encoding & build essentials
+    openssl libssl-dev gcc g++ make \
+    # Python base & math development headers
+    python3 python3-pip python3-dev libgmp-dev libmpfr-dev \
+    # Core utilities
+    git jq zip unzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python CTF core libraries ────────────────────────────────────────────────
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip3 install --no-cache-dir \
+    pwntools \
+    pycryptodome \
+    sympy \
+    gmpy2 \
+    requests \
+    Pillow \
+    z3-solver \
+    tqdm \
+    httpx
+
+# ── Tools reference inventory ────────────────────────────────────────────────
+RUN printf "CTF Sandbox (Lite Profile)\n\
+Installed Tools:\n\
+- Binary / Pwn: file, strings, xxd, binutils (readelf, objdump, nm), gdb, ltrace, strace, pwntools\n\
+- Cryptography: pycryptodome, sympy, gmpy2, z3-solver, openssl\n\
+- Forensics & Steganography: exiftool, steghide, pngcheck, tesseract-ocr, Pillow\n\
+- Networking & Web: curl, wget, netcat (nc), requests, httpx\n\
+- Environment: Python 3, bash\n" > /tools.txt
+
+WORKDIR /challenge
+CMD ["sleep", "infinity"]

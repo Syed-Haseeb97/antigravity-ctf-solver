@@ -1,0 +1,5 @@
+name: EXIF Hunter
+category: forensics
+value: 75
+description: Metadata holds secrets. Inspect the file comment.
+solves: 90
