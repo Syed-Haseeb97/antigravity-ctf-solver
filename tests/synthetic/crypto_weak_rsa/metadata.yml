@@ -4,3 +4,5 @@ value: 100
 description: Tiny primes were used for this RSA implementation. Factor n to find the
   flag.
 solves: 65
+flag: flag{rsa_m42_factored}
+flag_sha256: 3cab9c8da8e3b1e39b455bf409fdba9a40becbf9a8f131a24d7c191fb986e2cc

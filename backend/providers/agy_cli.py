@@ -25,9 +25,9 @@ class AgyCliProvider(BaseProvider):
 
     def __init__(
         self,
-        model: str = "gemini-3.8-flash-medium",
+        model: str = "gemini-3.8-flash-low",
         executable_path: str | None = None,
-        effort: str = "medium",
+        effort: str = "low",
     ) -> None:
         self.model = model
         self.effort = effort
@@ -83,42 +83,66 @@ class AgyCliProvider(BaseProvider):
             "json",
             "--model",
             self.model,
-            "--effort",
-            self.effort,
+            "--disable-slash-commands",
             "--dangerously-skip-permissions",
         ]
+        # Only append --effort if model name does not already embed the level
+        if not any(f"-{lvl}" in self.model for lvl in ["low", "medium", "high", "xhigh", "max"]):
+            if self.effort:
+                cmd.extend(["--effort", self.effort])
 
         logger.debug(f"Executing agy CLI: {' '.join(cmd[:4])} ...")
 
-        start_time = asyncio.get_event_loop().time()
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=timeout_seconds,
-            )
-        except asyncio.TimeoutError:
+        max_attempts = 3
+        last_err = ""
+
+        for attempt in range(1, max_attempts + 1):
+            start_time = asyncio.get_event_loop().time()
             try:
-                proc.kill()
-            except Exception:
-                pass
-            raise TimeoutError(f"Antigravity CLI timed out after {timeout_seconds}s")
-        except Exception as e:
-            raise RuntimeError(f"Failed to launch Antigravity CLI process: {e}") from e
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                if attempt < max_attempts:
+                    logger.warning(f"agy CLI timed out (attempt {attempt}/{max_attempts}), retrying...")
+                    await asyncio.sleep(2 * attempt)
+                    continue
+                raise TimeoutError(f"Antigravity CLI timed out after {timeout_seconds}s")
+            except Exception as e:
+                if attempt < max_attempts:
+                    logger.warning(f"agy CLI launch failed ({e}) (attempt {attempt}/{max_attempts}), retrying...")
+                    await asyncio.sleep(2 * attempt)
+                    continue
+                raise RuntimeError(f"Failed to launch Antigravity CLI process: {e}") from e
 
-        duration = asyncio.get_event_loop().time() - start_time
-        stdout_str = stdout_bytes.decode("utf-8", errors="replace").strip()
-        stderr_str = stderr_bytes.decode("utf-8", errors="replace").strip()
+            duration = asyncio.get_event_loop().time() - start_time
+            stdout_str = stdout_bytes.decode("utf-8", errors="replace").strip()
+            stderr_str = stderr_bytes.decode("utf-8", errors="replace").strip()
 
-        if proc.returncode != 0:
-            logger.error(f"agy CLI failed (exit {proc.returncode}): {stderr_str}")
-            raise RuntimeError(
-                f"Antigravity CLI exited with code {proc.returncode}: {stderr_str or stdout_str}"
-            )
+            if proc.returncode != 0:
+                last_err = stderr_str or stdout_str
+                if attempt < max_attempts:
+                    logger.warning(
+                        f"agy CLI failed (exit {proc.returncode}: {last_err[:80]}) "
+                        f"(attempt {attempt}/{max_attempts}), retrying..."
+                    )
+                    await asyncio.sleep(2 * attempt)
+                    continue
+                logger.error(f"agy CLI failed permanently (exit {proc.returncode}): {last_err}")
+                raise RuntimeError(f"Antigravity CLI exited with code {proc.returncode}: {last_err}")
+            
+            # Successfully executed
+            break
 
         # Parse JSON output from agy
         try:

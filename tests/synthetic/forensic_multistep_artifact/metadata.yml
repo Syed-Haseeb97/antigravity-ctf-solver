@@ -1,0 +1,10 @@
+name: Corrupted Artifact Carve
+category: forensics
+value: 250
+description: A damaged forensic disk artifact was dumped from an adversary node. The
+  file header magic bytes have been zeroed out. Repair the file format header, recover
+  the embedded authentication passphrase from the comment, carve the appended encrypted
+  zip archive, and unlock the flag.
+solves: 25
+flag: flag{forensic_header_repaired_and_zip_carved_7719}
+flag_sha256: d13f03aa27aaef7c5113272f23cf975480f7487b38544e69ca373a7f70a0b0a0

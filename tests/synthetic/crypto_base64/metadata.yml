@@ -3,3 +3,5 @@ category: crypto
 value: 50
 description: Decode the attached base64 encoded secret string.
 solves: 120
+flag: flag{base64_decoded_successfully}
+flag_sha256: c13de28b64af2ef4004419909047748bfa9716c6ca37e79932dbc55e91cad1cf

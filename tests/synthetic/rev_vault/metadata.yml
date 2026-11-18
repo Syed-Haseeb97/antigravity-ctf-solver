@@ -3,3 +3,5 @@ category: rev
 value: 100
 description: Analyze the Python verification logic to recover the secret password.
 solves: 85
+flag: flag{vault_unlocked}
+flag_sha256: 94fd36946705eaf2a105d6e878d1804ed88f6afe5d833cb59029e5c8b24bdf24

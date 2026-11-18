@@ -231,126 +231,60 @@ class DockerSandbox(ISandbox):
                 pass
 
 
-KNOWN_BASH_PATHS = [
-    r"D:\Movies\Git\bin\bash.exe",
-    r"C:\Program Files\Git\bin\bash.exe",
-]
-
-
 @dataclass
-class LocalSubprocessSandbox(ISandbox):
-    """Subprocess-based local sandbox used for fast unit tests and environments without Docker.
-    Restricted to an isolated directory on Drive D: with Git bash support.
+class MockSandbox(ISandbox):
+    """Purely in-memory, safe isolated mock sandbox for offline unit tests.
+    Does NOT spawn any host shell processes or execute commands on Windows host.
+    Guarantees zero host execution risks.
     """
 
     challenge_dir: str = ""
     workspace_root: str = DEFAULT_WORKSPACE_ROOT
     workspace_dir: str = ""
-    _bash_executable: str | None = None
-
-    def __post_init__(self) -> None:
-        for p in KNOWN_BASH_PATHS:
-            if Path(p).exists():
-                self._bash_executable = p
-                break
-        if not self._bash_executable:
-            self._bash_executable = shutil.which("bash") or shutil.which("bash.exe")
-
-    def _resolve_virtual_path(self, path: str) -> Path:
-        """Map container virtual paths (/challenge/...) to the local workspace folder."""
-        norm = path.replace("\\", "/").strip()
-        ws = Path(self.workspace_dir)
-
-        if norm in (".", "./", ""):
-            return ws
-        if norm.startswith("/challenge/distfiles/"):
-            rel = norm[len("/challenge/distfiles/"):]
-            return ws / "distfiles" / rel
-        if norm.startswith("/challenge/workspace/"):
-            rel = norm[len("/challenge/workspace/"):]
-            return ws / rel
-        if norm.startswith("/challenge/"):
-            rel = norm[len("/challenge/"):]
-            return ws / rel
-
-        candidate = ws / norm
-        if candidate.exists() or not Path(path).is_absolute():
-            return candidate
-        return Path(path)
+    files: dict[str, str] = field(default_factory=dict)
+    cmd_handlers: dict[str, ExecResult] = field(default_factory=dict)
 
     async def start(self) -> None:
-        base_ws = Path(self.workspace_root)
-        base_ws.mkdir(parents=True, exist_ok=True)
-        self.workspace_dir = str(base_ws / f"local-ws-{uuid.uuid4().hex[:8]}")
-        ws_path = Path(self.workspace_dir)
-        ws_path.mkdir(parents=True, exist_ok=True)
-
+        self.workspace_dir = f"mock-ws-{uuid.uuid4().hex[:8]}"
         if self.challenge_dir:
             dist = Path(self.challenge_dir) / "distfiles"
             if dist.exists():
-                local_dist = ws_path / "distfiles"
-                shutil.copytree(dist, local_dist, dirs_exist_ok=True)
+                for f in dist.rglob("*"):
+                    if f.is_file():
+                        try:
+                            rel = f.relative_to(dist)
+                            self.files[f"/challenge/distfiles/{rel.as_posix()}"] = f.read_text(
+                                encoding="utf-8", errors="replace"
+                            )
+                        except Exception:
+                            pass
 
     async def exec(self, command: str, timeout_s: int = 30) -> ExecResult:
-        cwd = self.workspace_dir or str(Path(self.challenge_dir).resolve())
-        cmd = command.replace("/challenge/distfiles/", "distfiles/").replace("/challenge/workspace/", "./")
-
-        try:
-            if self._bash_executable:
-                proc = await asyncio.create_subprocess_exec(
-                    self._bash_executable,
-                    "-c",
-                    cmd,
-                    cwd=cwd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-            else:
-                proc = await asyncio.create_subprocess_shell(
-                    cmd,
-                    cwd=cwd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=timeout_s,
-            )
-            return ExecResult(
-                exit_code=proc.returncode or 0,
-                stdout=stdout_bytes.decode("utf-8", errors="replace"),
-                stderr=stderr_bytes.decode("utf-8", errors="replace"),
-            )
-        except asyncio.TimeoutError:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-            return ExecResult(exit_code=-1, stdout="", stderr=f"Command timed out after {timeout_s}s")
-        except Exception as e:
-            return ExecResult(exit_code=-1, stdout="", stderr=str(e))
+        for pattern, res in self.cmd_handlers.items():
+            if pattern in command:
+                return res
+        return ExecResult(exit_code=0, stdout="[mock-sandbox]", stderr="")
 
     async def read_file(self, path: str) -> str:
-        target = self._resolve_virtual_path(path)
-        if not target.exists():
-            raise FileNotFoundError(f"Cannot read file: {target}")
-        return target.read_text(encoding="utf-8", errors="replace")
+        norm = path.replace("\\", "/").strip()
+        if norm in self.files:
+            return self.files[norm]
+        raise FileNotFoundError(f"File not found in mock sandbox: {path}")
 
     async def write_file(self, path: str, content: str) -> None:
-        target = self._resolve_virtual_path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        norm = path.replace("\\", "/").strip()
+        self.files[norm] = content
 
     async def list_files(self, path: str) -> list[str]:
-        target = self._resolve_virtual_path(path)
-        if not target.exists() or not target.is_dir():
-            return []
-        return [f.name for f in target.iterdir()]
+        norm = path.replace("\\", "/").strip()
+        return [
+            Path(k).name
+            for k in self.files.keys()
+            if k.startswith(norm)
+        ]
 
     async def stop(self) -> None:
-        if self.workspace_dir and Path(self.workspace_dir).exists():
-            shutil.rmtree(self.workspace_dir, ignore_errors=True)
+        self.files.clear()
 
 
 async def cleanup_orphan_containers() -> int:
@@ -362,17 +296,20 @@ async def cleanup_orphan_containers() -> int:
         try:
             containers = await docker.containers.list(all=True)
             for c in containers:
-                labels = c.get("Labels", {}) or {}
-                if (
-                    labels.get(CONTAINER_LABEL)
-                    or labels.get("ctf-agent")
-                    or "ctf-sandbox" in (c.get("Image", "") or "")
-                ):
-                    try:
+                try:
+                    data = await c.show()
+                    cfg = data.get("Config", {}) or {}
+                    labels = cfg.get("Labels", {}) or {}
+                    image = cfg.get("Image", "") or ""
+                    if (
+                        labels.get(CONTAINER_LABEL)
+                        or labels.get("ctf-agent")
+                        or "ctf-sandbox" in image
+                    ):
                         await c.delete(force=True)
                         count += 1
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
             if count > 0:
                 logger.info("Cleaned up %d orphan CTF container(s)", count)
             return count

@@ -17,6 +17,7 @@ from backend.config import Settings
 from backend.engine.capabilities import ToolInventory, detect_sandbox_capabilities
 from backend.engine.prompts_v2 import build_system_prompt, build_turn_prompt
 from backend.engine.triage import ChallengeTriage, triage_challenge
+from backend.engine.verifier import verify_candidate_flag
 from backend.loop_detect import LoopDetector
 from backend.providers.base import BaseProvider, LLMResponse
 from backend.sandbox import ISandbox
@@ -94,8 +95,7 @@ class ChallengeOrchestrator:
         return candidates
 
     def _parse_model_action(self, raw_text: str) -> dict[str, Any]:
-        """Extract JSON action from model response with fallback regex."""
-        # Try direct json
+        """Extract JSON action from model response with robust error tolerance and regex field recovery."""
         cleaned = raw_text.strip()
         if cleaned.startswith("```json"):
             cleaned = cleaned[7:]
@@ -105,28 +105,56 @@ class ChallengeOrchestrator:
             cleaned = cleaned[:-3]
         cleaned = cleaned.strip()
 
+        # 1. Try standard JSON load with strict=False (allows unescaped control chars)
         try:
-            return json.loads(cleaned)
+            return json.loads(cleaned, strict=False)
         except json.JSONDecodeError:
             pass
 
-        # Try regex search for first valid JSON object
+        # 2. Try regex extraction of JSON object
         m = re.search(r"\{[\s\S]*\}", raw_text)
         if m:
             try:
-                return json.loads(m.group(0))
+                return json.loads(m.group(0), strict=False)
             except json.JSONDecodeError:
                 pass
 
-        # Fallback heuristic
+        # 3. Targeted field regex extraction (if internal quotes weren't escaped)
+        extracted: dict[str, Any] = {}
+        for field in ["thought", "hypothesis", "action", "command", "explanation"]:
+            f_match = re.search(rf'"{field}"\s*:\s*"((?:[^"\\]|\\.)*)"', raw_text, re.DOTALL)
+            if f_match:
+                extracted[field] = f_match.group(1).replace(r'\"', '"').replace(r'\n', '\n')
+
+        if "action" in extracted and "command" in extracted:
+            return extracted
+
+        # 4. Check if model directly emitted a flag
+        flag_match = FLAG_REGEX.search(raw_text)
+        if flag_match and flag_match.group(0).lower() not in DUMMY_FLAGS:
+            return {
+                "thought": "Direct flag output detected in text response",
+                "hypothesis": "Submit identified flag",
+                "action": "submit_flag",
+                "command": flag_match.group(0).strip(),
+                "explanation": "Extracted flag candidate from response",
+            }
+
+        # 5. Safe fallback inspection command (never execute '{' as a shell command)
         logger.warning(f"Could not parse JSON from model output: {raw_text[:150]}...")
-        # Check if the model simply replied with a bash command
+        valid_cmd = "ls -la /challenge/distfiles"
+        for line in raw_text.splitlines():
+            line_s = line.strip()
+            if line_s and not line_s.startswith(("{", "}", "[", "]", '"', "```")):
+                valid_cmd = line_s
+                break
+
         return {
-            "thought": "Direct text output parsed as bash fallback",
-            "hypothesis": "Run output as bash",
+            "thought": "Text response parsed with safe fallback command",
+            "hypothesis": "Inspect challenge files",
             "action": "bash",
-            "command": raw_text.splitlines()[0] if raw_text else "ls -la",
-            "explanation": "Extracted first line from raw output",
+            "command": valid_cmd,
+            "explanation": "Safe fallback inspection",
         }
 
     async def solve(self) -> SolveReport:
@@ -237,15 +265,22 @@ class ChallengeOrchestrator:
                     break
 
                 elif action == "submit_flag":
-                    flag_candidate = command
+                    flag_candidate = command.strip()
                     logger.info(f"Flag candidate proposed on turn {turn}: {flag_candidate}")
-                    if flag_candidate.lower() in DUMMY_FLAGS:
-                        cmd_out = f"REJECTED: '{flag_candidate}' is a dummy/placeholder flag."
-                        exit_code = 1
-                    else:
+                    
+                    v_res = await verify_candidate_flag(
+                        candidate=flag_candidate,
+                        challenge_dir=self.challenge_dir,
+                        sandbox=self.sandbox,
+                        ctfd_client=self.ctfd_client,
+                        challenge_id=meta.get("id"),
+                        dry_run=self.dry_run,
+                    )
+                    
+                    if v_res.verified:
                         report.status = "solved"
                         report.flag = flag_candidate
-                        cmd_out = f"VERIFIED: Flag '{flag_candidate}' accepted."
+                        cmd_out = f"VERIFIED SUCCESS ({v_res.method}): {v_res.message} Flag: '{flag_candidate}'"
                         history_items.append(
                             TurnRecord(
                                 turn=turn,
@@ -260,6 +295,12 @@ class ChallengeOrchestrator:
                             )
                         )
                         break
+                    else:
+                        cmd_out = (
+                            f"VERIFICATION REJECTED: Candidate '{flag_candidate}' is INCORRECT. "
+                            f"Reason: {v_res.message}. Re-examine evidence and test an alternative hypothesis."
+                        )
+                        exit_code = 1
 
                 elif action == "read_file":
                     try:
@@ -282,12 +323,25 @@ class ChallengeOrchestrator:
                     exit_code = res.exit_code
                     cmd_out = (res.stdout + ("\nSTDERR:\n" + res.stderr if res.stderr else "")).strip()
 
-                # Automatic flag opportunistic extraction from output
+                # Opportunistic extraction: MUST verify candidate before claiming solve
                 auto_flags = self._extract_flag_candidates(cmd_out)
                 if auto_flags and not report.flag:
-                    logger.info(f"Auto-detected flag in turn {turn} output: {auto_flags[0]}")
-                    report.status = "solved"
-                    report.flag = auto_flags[0]
+                    for cand in auto_flags:
+                        v_res = await verify_candidate_flag(
+                            candidate=cand,
+                            challenge_dir=self.challenge_dir,
+                            sandbox=self.sandbox,
+                            ctfd_client=self.ctfd_client,
+                            challenge_id=meta.get("id"),
+                            dry_run=self.dry_run,
+                        )
+                        if v_res.verified:
+                            logger.info(f"Auto-extracted candidate '{cand}' verified ({v_res.method}) on turn {turn}")
+                            report.status = "solved"
+                            report.flag = cand
+                            break
+                        else:
+                            logger.debug(f"Auto-extracted candidate '{cand}' rejected by verification oracle.")
 
                 history_items.append(
                     TurnRecord(

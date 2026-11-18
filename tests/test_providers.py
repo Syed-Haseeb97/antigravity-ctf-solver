@@ -44,4 +44,4 @@ def test_factory_routing():
 
 def test_agy_cli_resolver():
     provider = AgyCliProvider(executable_path=r"D:\ADMIN\bin\agy.exe")
-    assert provider.name == "agy/gemini-3.8-flash-medium"
+    assert provider.name == "agy/gemini-3.8-flash-low"

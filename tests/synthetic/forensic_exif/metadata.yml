@@ -3,3 +3,5 @@ category: forensics
 value: 75
 description: Metadata holds secrets. Inspect the file comment.
 solves: 90
+flag: flag{exif_metadata_extracted_properly}
+flag_sha256: 6aab80793162fd854718985981050a29b1216d464e36abf679d1766ba3f1dac6

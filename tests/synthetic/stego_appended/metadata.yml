@@ -3,3 +3,5 @@ category: stego
 value: 100
 description: Check what lies past the image trailer.
 solves: 70
+flag: flag{appended_bytes_stego_found}
+flag_sha256: 8c95f122088c4f6c937383ff5dc13923b0633ac01f8a5184b89639ba1870b487

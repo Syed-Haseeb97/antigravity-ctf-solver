@@ -43,20 +43,16 @@ class ToolInventory:
 
 async def detect_sandbox_capabilities(sandbox: ISandbox) -> ToolInventory:
     """Inspect the live sandbox to verify which tools are genuinely present."""
-    from backend.sandbox import LocalSubprocessSandbox
+    from backend.sandbox import MockSandbox
 
     inv = ToolInventory()
 
-    # Fast path for LocalSubprocessSandbox
-    if isinstance(sandbox, LocalSubprocessSandbox):
+    # Fast path for in-memory MockSandbox
+    if isinstance(sandbox, MockSandbox):
         for b in COMMON_BINARIES:
-            inv.binaries[b] = bool(shutil.which(b) or shutil.which(f"{b}.exe"))
+            inv.binaries[b] = True
         for p in COMMON_PYTHON_MODULES:
-            try:
-                __import__(p)
-                inv.python_modules[p] = True
-            except Exception:
-                inv.python_modules[p] = False
+            inv.python_modules[p] = True
         return inv
 
     # For DockerSandbox, run python inside container to test availability safely

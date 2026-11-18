@@ -1,8 +1,8 @@
-"""Unit tests for sandboxes and resource limits."""
+"""Unit tests for sandboxes, resource limits, and mock sandbox isolation."""
 
 import pytest
 from pathlib import Path
-from backend.sandbox import DockerSandbox, LocalSubprocessSandbox, ExecResult
+from backend.sandbox import DockerSandbox, MockSandbox, ExecResult
 
 
 def test_docker_sandbox_resource_parsing():
@@ -18,28 +18,25 @@ def test_docker_sandbox_resource_parsing():
 
 
 @pytest.mark.asyncio
-async def test_local_subprocess_sandbox_lifecycle(tmp_path):
-    ws_root = tmp_path / "workspaces"
-    sandbox = LocalSubprocessSandbox(workspace_root=str(ws_root))
+async def test_mock_sandbox_isolation(tmp_path):
+    sandbox = MockSandbox()
     await sandbox.start()
 
-    assert Path(sandbox.workspace_dir).exists()
-
-    # Test file writing and reading
-    await sandbox.write_file("test.txt", "hello ctf")
-    content = await sandbox.read_file("test.txt")
+    # Test file writing and reading in memory
+    await sandbox.write_file("/challenge/workspace/test.txt", "hello ctf")
+    content = await sandbox.read_file("/challenge/workspace/test.txt")
     assert content == "hello ctf"
 
-    # Test directory listing
-    files = await sandbox.list_files(".")
+    # Test listing
+    files = await sandbox.list_files("/challenge/workspace")
     assert "test.txt" in files
 
     # Test exec
-    res = await sandbox.exec("python -c \"print('PONG')\"")
+    res = await sandbox.exec("echo 'PONG'")
     assert isinstance(res, ExecResult)
     assert res.exit_code == 0
-    assert "PONG" in res.stdout
+    assert "[mock-sandbox]" in res.stdout
 
     # Test stop/cleanup
     await sandbox.stop()
-    assert not Path(sandbox.workspace_dir).exists()
+    assert len(sandbox.files) == 0

@@ -1,0 +1,9 @@
+name: Bytecode Enigma
+category: rev
+value: 300
+description: A custom virtual machine evaluates input keys. Analyze the instruction
+  decoder and transformation rules (XOR, ADD, ROL), reverse the bytecode pipeline,
+  and find the flag that triggers 'ACCESS GRANTED'.
+solves: 18
+flag: flag{vm_bytecode_disassembled_and_reversed_31415}
+flag_sha256: 2bf66b9cc09fcfd7ba6c81507c87441c783e249c5cd53cf5bc049a3eb03d0dad

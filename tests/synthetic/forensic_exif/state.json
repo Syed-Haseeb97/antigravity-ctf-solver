@@ -3,20 +3,31 @@
   "category": "forensics",
   "status": "solved",
   "flag": "flag{exif_metadata_extracted_properly}",
-  "turns": 1,
-  "duration_seconds": 2.32,
-  "total_tokens": 157,
+  "turns": 2,
+  "duration_seconds": 70.87,
+  "total_tokens": 45970,
   "timeline": [
     {
       "turn": 1,
-      "thought": "Extract comment metadata from JPEG",
-      "hypothesis": "Comment contains flag",
-      "action": "submit_flag",
-      "command": "flag{exif_metadata_extracted_properly}",
-      "output": "VERIFIED: Flag 'flag{exif_metadata_extracted_properly}' accepted.",
+      "thought": "The challenge 'EXIF Hunter' explicitly directs us to look at the JPEG file's metadata and comment ('Metadata holds secrets. Inspect the file comment.'). We also have /challenge/distfiles/validate.py which likely contains the verification logic or flag format. First, inspecting validate.py and the distfiles directory will provide ground truth on what flag format is expected and what files exist.",
+      "hypothesis": "The flag or verification logic is contained in or verified by /challenge/distfiles/validate.py, and evidence.jpg contains the comment metadata holding the flag.",
+      "action": "bash",
+      "command": "cat /challenge/distfiles/validate.py 2>/dev/null || cat validate.py 2>/dev/null || ls -la /challenge/distfiles",
+      "output": "import sys\r\nimport hashlib\r\n\r\nEXPECTED_HASH = \"6aab80793162fd854718985981050a29b1216d464e36abf679d1766ba3f1dac6\"\r\n\r\ndef main():\r\n    if len(sys.argv) < 2:\r\n        cand = sys.stdin.read().strip()\r\n    else:\r\n        cand = sys.argv[1].strip()\r\n\r\n    h = hashlib.sha256(cand.encode(\"utf-8\")).hexdigest()\r\n    if h == EXPECTED_HASH:\r\n        print(\"VALID: Flag accepted!\")\r\n        sys.exit(0)\r\n    else:\r\n        print(\"INVALID: Incorrect flag.\")\r\n        sys.exit(1)\r\n\r\nif __name__ == \"__main__\":\r\n    main()",
       "exit_code": 0,
-      "duration_s": 0.01,
-      "tokens": 157
+      "duration_s": 12.4856775,
+      "tokens": 22798
+    },
+    {
+      "turn": 2,
+      "thought": "The validate.py script verifies the flag by checking if SHA256 matches EXPECTED_HASH ('6aab80793162fd854718985981050a29b1216d464e36abf679d1766ba3f1dac6'). The challenge description explicitly hints: 'Metadata holds secrets. Inspect the file comment.' The evidence image is located at /challenge/distfiles/evidence.jpg. We can use exiftool, strings, or python to inspect JPEG COM (Comment) markers / EXIF tags directly.",
+      "hypothesis": "The flag is stored in the JPEG comment or EXIF metadata of /challenge/distfiles/evidence.jpg.",
+      "action": "bash",
+      "command": "exiftool /challenge/distfiles/evidence.jpg 2>/dev/null || python3 -c \"from PIL import Image; img=Image.open('/challenge/distfiles/evidence.jpg'); print(img.app.get('COM') or img.info)\" 2>/dev/null || strings /challenge/distfiles/evidence.jpg | grep -iE 'flag\\{|ctf\\{'",
+      "output": "ExifTool Version Number         : 12.40\nFile Name                       : evidence.jpg\nDirectory                       : /challenge/distfiles\nFile Size                       : 46 bytes\nFile Modification Date/Time     : 2026:11:18 02:47:52+00:00\nFile Access Date/Time           : 2026:11:18 02:47:52+00:00\nFile Inode Change Date/Time     : 2026:11:18 02:47:52+00:00\nFile Permissions                : -rwxrwxrwx\nFile Type                       : JPEG\nFile Type Extension             : jpg\nMIME Type                       : image/jpeg\nComment                         : flag{exif_metadata_extracted_properly}\nWarning                         : Missing JPEG SOS",
+      "exit_code": 0,
+      "duration_s": 10.2834571,
+      "tokens": 23172
     }
   ]
 }

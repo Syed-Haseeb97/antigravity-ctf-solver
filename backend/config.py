@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     ctfd_token: str = ""
 
     # Primary reasoning model (zero-cost Gemini 3.8 Flash via agy CLI)
-    default_model: str = "agy/gemini-3.8-flash-medium"
-    reasoning_effort: str = "medium"  # low, medium, high
+    default_model: str = "agy/gemini-3.8-flash-low"
+    reasoning_effort: str = "low"  # low, medium, high
     agy_cli_path: str = ""
 
     # Optional direct API keys (fallback / alternate providers)

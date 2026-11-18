@@ -1,0 +1,10 @@
+name: Broken Stream
+category: crypto
+value: 250
+description: An intercepted encrypted transmission and the encryption generator script.
+  The cipher uses a 32-bit linear congruential generator seeded with a 16-bit offset.
+  Crack the generator seed using known plaintext, decrypt the chunk-reversed ciphertext,
+  and recover the flag.
+solves: 32
+flag: flag{lcg_stream_seed_recovered_and_inverted_9482}
+flag_sha256: 4cf4efdade08d161a01aea5ecdad0e61afd1f0e3146279a0abea67072e85e892

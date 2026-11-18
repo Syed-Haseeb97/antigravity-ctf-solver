@@ -4,3 +4,5 @@ value: 100
 description: The secret was encrypted with a single-byte XOR key. Recover the key
   and plaintext.
 solves: 80
+flag: flag{xor_single_byte_cracked}
+flag_sha256: 5536686278be374f2cbfe6ec04813c5310a95bcd7a7405808db389ab958b2eed

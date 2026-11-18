@@ -1,4 +1,6 @@
-"""Integration tests for autonomous challenge orchestrator on synthetic challenges."""
+"""Integration tests for autonomous challenge orchestrator on synthetic challenges.
+Uses safe MockSandbox to guarantee zero host execution risks.
+"""
 
 import json
 import pytest
@@ -7,7 +9,7 @@ from pathlib import Path
 from backend.config import Settings
 from backend.engine.orchestrator import ChallengeOrchestrator
 from backend.providers.mock_provider import MockProvider
-from backend.sandbox import LocalSubprocessSandbox
+from backend.sandbox import MockSandbox
 from backend.synthetic_generator import generate_synthetic_challenges
 
 
@@ -22,19 +24,18 @@ async def test_solve_crypto_base64_synthetic(synthetic_suite, tmp_path):
     ch_path = synthetic_suite["crypto_base64"]
     settings = Settings(workspace_root=str(tmp_path / "workspaces"), max_turns_per_challenge=5)
 
-    # Mock provider simulates agent discovering base64 file and decoding it
     responses = [
         # Turn 1: inspect distfiles
         json.dumps({
             "thought": "Inspect the attached secret.txt",
             "hypothesis": "The secret file contains a base64 encoded flag",
             "action": "bash",
-            "command": "python -c \"import base64; print(base64.b64decode(open('distfiles/secret.txt').read().strip()).decode())\"",
-            "explanation": "Decode base64 string",
+            "command": "cat /challenge/distfiles/secret.txt",
+            "explanation": "Read encoded content",
         }),
         # Turn 2: submit extracted flag
         json.dumps({
-            "thought": "The base64 decode yielded flag{base64_decoded_successfully}",
+            "thought": "Decoded to flag{base64_decoded_successfully}",
             "hypothesis": "Submit the decoded flag",
             "action": "submit_flag",
             "command": "flag{base64_decoded_successfully}",
@@ -43,7 +44,7 @@ async def test_solve_crypto_base64_synthetic(synthetic_suite, tmp_path):
     ]
 
     provider = MockProvider(responses=responses)
-    sandbox = LocalSubprocessSandbox(challenge_dir=str(ch_path), workspace_root=settings.workspace_root)
+    sandbox = MockSandbox(challenge_dir=str(ch_path))
 
     orchestrator = ChallengeOrchestrator(
         challenge_dir=ch_path,
@@ -70,13 +71,13 @@ async def test_solve_reversing_synthetic(synthetic_suite, tmp_path):
     responses = [
         # Turn 1: inspect python check
         json.dumps({
-            "thought": "Run python to extract characters from target array",
-            "hypothesis": "Reconstruct password from ord array",
-            "action": "bash",
-            "command": "python -c \"target = [102, 108, 97, 103, 123, 118, 97, 117, 108, 116, 95, 117, 110, 108, 111, 99, 107, 101, 100, 125]; print(''.join(chr(c) for c in target))\"",
-            "explanation": "Convert ASCII codes back to characters",
+            "thought": "Read vault.py to see checking logic",
+            "hypothesis": "Recover password from array",
+            "action": "read_file",
+            "command": "/challenge/distfiles/vault.py",
+            "explanation": "Examine checking logic",
         }),
-        # Turn 2: submit flag
+        # Turn 2: submit verified flag
         json.dumps({
             "thought": "ASCII array reconstructs to flag{vault_unlocked}",
             "hypothesis": "Submit reconstructed flag",
@@ -87,7 +88,7 @@ async def test_solve_reversing_synthetic(synthetic_suite, tmp_path):
     ]
 
     provider = MockProvider(responses=responses)
-    sandbox = LocalSubprocessSandbox(challenge_dir=str(ch_path), workspace_root=settings.workspace_root)
+    sandbox = MockSandbox(challenge_dir=str(ch_path))
 
     orchestrator = ChallengeOrchestrator(
         challenge_dir=ch_path,
@@ -119,7 +120,7 @@ async def test_solve_give_up_behavior(synthetic_suite, tmp_path):
     ]
 
     provider = MockProvider(responses=responses)
-    sandbox = LocalSubprocessSandbox(challenge_dir=str(ch_path), workspace_root=settings.workspace_root)
+    sandbox = MockSandbox(challenge_dir=str(ch_path))
 
     orchestrator = ChallengeOrchestrator(
         challenge_dir=ch_path,

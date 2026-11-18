@@ -14,7 +14,7 @@ from backend.config import Settings
 from backend.engine.orchestrator import ChallengeOrchestrator, SolveReport
 from backend.providers.base import BaseProvider
 from backend.providers.factory import get_provider
-from backend.sandbox import ISandbox, LocalSubprocessSandbox
+from backend.sandbox import DockerSandbox, ISandbox, MockSandbox
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class BenchmarkRunner:
         challenges_dir: str | Path,
         provider: BaseProvider,
         settings: Settings,
-        use_docker: bool = False,
+        use_docker: bool = True,
     ) -> None:
         self.challenges_dir = Path(challenges_dir)
         self.provider = provider
@@ -73,7 +73,6 @@ class BenchmarkRunner:
 
     def _get_sandbox(self, ch_dir: Path) -> ISandbox:
         if self.use_docker:
-            from backend.sandbox import DockerSandbox
             return DockerSandbox(
                 image=self.settings.sandbox_image,
                 challenge_dir=str(ch_dir),
@@ -82,7 +81,7 @@ class BenchmarkRunner:
                 workspace_root=self.settings.workspace_root,
             )
         else:
-            return LocalSubprocessSandbox(
+            return MockSandbox(
                 challenge_dir=str(ch_dir),
                 workspace_root=self.settings.workspace_root,
             )

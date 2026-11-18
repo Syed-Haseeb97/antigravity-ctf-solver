@@ -1,11 +1,11 @@
-"""Live model verification test using the verified local agy.exe CLI adapter and Gemini 3.8 Flash."""
+"""Live model verification test using the verified local agy.exe CLI adapter and Gemini 3.8 Flash inside DockerSandbox."""
 
 import pytest
 from pathlib import Path
 from backend.config import Settings
 from backend.engine.orchestrator import ChallengeOrchestrator
 from backend.providers.agy_cli import AgyCliProvider
-from backend.sandbox import LocalSubprocessSandbox
+from backend.sandbox import DockerSandbox
 from backend.synthetic_generator import generate_synthetic_challenges
 
 
@@ -28,8 +28,11 @@ async def test_live_agy_gemini_solve(tmp_path):
         turn_timeout_seconds=90,
     )
 
-    sandbox = LocalSubprocessSandbox(
+    sandbox = DockerSandbox(
+        image=settings.sandbox_image,
         challenge_dir=str(target_chall),
+        memory_limit=settings.container_memory_limit,
+        cpu_count=settings.container_cpu_count,
         workspace_root=settings.workspace_root,
     )
 
@@ -41,7 +44,7 @@ async def test_live_agy_gemini_solve(tmp_path):
         dry_run=True,
     )
 
-    print("\n--- Starting Live Gemini 3.8 Flash Solver on crypto_base64 ---")
+    print("\n--- Starting Live Gemini 3.8 Flash Solver on crypto_base64 in DockerSandbox ---")
     report = await orchestrator.solve()
 
     print(f"\nFinal Result:")

@@ -269,12 +269,16 @@ def pull(url: str | None, token: str | None, user: str | None, password: str | N
 @cli.command()
 @click.option("--challenge", required=True, help="Path to challenge directory")
 @click.option("--model", default=None, help="Reasoning model spec (default: agy/gemini-3.8-flash-medium)")
-@click.option("--no-docker", is_flag=True, help="Run in local isolated subprocess sandbox instead of Docker")
+@click.option("--no-docker", is_flag=True, help="Deprecated/Disabled: Host execution is blocked for security")
 @click.option("--submit", is_flag=True, help="Submit flag to CTFd if found (default is dry-run)")
 @click.option("--max-turns", default=25, type=int, help="Maximum reasoning turns")
 def solve(challenge: str, model: str | None, no_docker: bool, submit: bool, max_turns: int) -> None:
     """Solve an individual CTF challenge using the autonomous reasoning loop."""
     console.print(BANNER)
+    if no_docker:
+        console.print("[bold red]SECURITY REJECTION[/bold red]: Host execution of untrusted CTF challenges is strictly forbidden. Isolated Docker container is mandatory.")
+        sys.exit(1)
+
     settings = Settings()
     if max_turns:
         settings.max_turns_per_challenge = max_turns
@@ -287,7 +291,7 @@ def solve(challenge: str, model: str | None, no_docker: bool, submit: bool, max_
     from backend.ctfd import CTFdClient
     from backend.engine.orchestrator import ChallengeOrchestrator
     from backend.providers.factory import get_provider
-    from backend.sandbox import DockerSandbox, LocalSubprocessSandbox
+    from backend.sandbox import DockerSandbox
 
     provider = get_provider(spec=model, settings=settings)
     console.print(f"Reasoning Provider: [bold cyan]{provider.name}[/bold cyan]")
@@ -302,18 +306,14 @@ def solve(challenge: str, model: str | None, no_docker: bool, submit: bool, max_
             dry_run=False,
         )
 
-    if no_docker:
-        sandbox = LocalSubprocessSandbox(challenge_dir=str(ch_path), workspace_root=settings.workspace_root)
-        console.print("Sandbox: [yellow]Local Subprocess Sandbox[/yellow]")
-    else:
-        sandbox = DockerSandbox(
-            image=settings.sandbox_image,
-            challenge_dir=str(ch_path),
-            memory_limit=settings.container_memory_limit,
-            cpu_count=settings.container_cpu_count,
-            workspace_root=settings.workspace_root,
-        )
-        console.print(f"Sandbox: [cyan]Docker Container ({settings.sandbox_image})[/cyan]")
+    sandbox = DockerSandbox(
+        image=settings.sandbox_image,
+        challenge_dir=str(ch_path),
+        memory_limit=settings.container_memory_limit,
+        cpu_count=settings.container_cpu_count,
+        workspace_root=settings.workspace_root,
+    )
+    console.print(f"Sandbox: [cyan]Docker Container ({settings.sandbox_image}) [Caps: {settings.container_memory_limit} RAM, {settings.container_cpu_count} CPUs][/cyan]")
 
     orchestrator = ChallengeOrchestrator(
         challenge_dir=ch_path,
@@ -352,9 +352,9 @@ def solve(challenge: str, model: str | None, no_docker: bool, submit: bool, max_
 @cli.command()
 @click.option("--suite", default="tests/synthetic", help="Path to benchmark challenge directory")
 @click.option("--model", default="mock/default", help="Reasoning model spec (default: mock/default)")
-@click.option("--no-docker", is_flag=True, default=True, help="Use local sandbox for fast benchmarks")
+@click.option("--docker/--no-docker", "use_docker", default=True, help="Run inside Docker container (default: True)")
 @click.option("--report-file", default="benchmark_report.md", help="Output markdown report file")
-def benchmark(suite: str, model: str, no_docker: bool, report_file: str) -> None:
+def benchmark(suite: str, model: str, use_docker: bool, report_file: str) -> None:
     """Run benchmark evaluation across a challenge suite and generate metrics report."""
     console.print(BANNER)
     settings = Settings()
@@ -368,13 +368,16 @@ def benchmark(suite: str, model: str, no_docker: bool, report_file: str) -> None
     from backend.providers.factory import get_provider
 
     provider = get_provider(spec=model, settings=settings)
-    console.print(f"Running benchmark suite: [cyan]{suite_path}[/cyan] with model: [bold]{provider.name}[/bold]\n")
+    sandbox_desc = f"Docker ({settings.sandbox_image})" if use_docker else "In-Memory MockSandbox (offline)"
+    console.print(f"Running benchmark suite: [cyan]{suite_path}[/cyan]")
+    console.print(f"Reasoning Model: [bold cyan]{provider.name}[/bold cyan]")
+    console.print(f"Sandbox Environment: [bold white]{sandbox_desc}[/bold white]\n")
 
     runner = BenchmarkRunner(
         challenges_dir=suite_path,
         provider=provider,
         settings=settings,
-        use_docker=not no_docker,
+        use_docker=use_docker,
     )
 
     with console.status("[bold green]Executing benchmark suite...[/bold green]"):
