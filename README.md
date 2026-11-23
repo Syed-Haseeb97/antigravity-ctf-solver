@@ -16,12 +16,12 @@ Antigravity couples the reasoning capability of **Gemini 3.8 Flash** with an iso
 Upstream CTF agents often assume multi-cloud enterprise infrastructure with 16GB+ RAM per container, expensive Anthropic/OpenAI API quotas, and heavy dependencies (SageMath, PyTorch, CADO-NFS).
 
 **Antigravity is re-architected for practical developer laptop hardware**:
-- **Processor**: Intel Core i5 8th Gen (4 Cores / 8 Threads) or equivalent.
-- **Physical Memory**: 16 GB RAM (Container capped at **3 GB RAM**, 2 CPU cores).
-- **GPU**: NVIDIA MX130 (2 GB) — all LLM reasoning runs offloaded via the native authenticated `agy` CLI with **zero local VRAM exhaustion**.
+- **Processor**: Modern 4+ Core x86_64 CPU (e.g. Intel Core i5/i7 or AMD Ryzen).
+- **Physical Memory**: 8 GB+ RAM (Sandbox container capped at **3 GB RAM**, 2 CPU cores).
+- **GPU**: Integrated or discrete GPU — all LLM reasoning runs offloaded via the native authenticated `agy` CLI with **zero local VRAM exhaustion**.
 - **AI API Cost**: **$0.00**. Uses the existing authenticated Antigravity CLI (`agy.exe`) session with no paid OpenAI/Anthropic keys required.
-- **Drive D: Storage Isolation**: All temporary workspaces, challenge distfiles, and build artifacts reside strictly on **Drive D:** (`D:\5TH vid\ctf ig\.workspaces`), keeping host drive C: clean.
-- **Zero Host Execution Policy**: Arbitrary challenge files and shell commands are strictly quarantined inside Docker containers (`DockerSandbox`). No untrusted code executes directly on the Windows host.
+- **Storage Isolation**: All temporary workspaces, challenge distfiles, and build artifacts reside strictly in isolated workspace directories (`.workspaces`), keeping system drives clean.
+- **Zero Host Execution Policy**: Arbitrary challenge files and shell commands are strictly quarantined inside Docker containers (`DockerSandbox`). No untrusted code executes directly on the host.
 
 ---
 
@@ -43,7 +43,7 @@ Upstream CTF agents often assume multi-cloud enterprise infrastructure with 16GB
         ┌─────────────────▼────────┐      ┌────────▼────────────────┐
         │    Antigravity CLI       │      │   Docker Sandbox        │
         │   (Gemini 3.8 Flash)     │      │   - 3 GB RAM Cap        │
-        │  via D:\ADMIN\bin\agy    │      │   - 2 CPU Cores         │
+        │   via agy CLI / PATH     │      │   - 2 CPU Cores         │
         └──────────────────────────┘      │   - Privileged: False   │
                                           │   - Read-only distfiles │
                                           │   - No Host Execution   │

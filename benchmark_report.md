@@ -1,7 +1,7 @@
 # Comprehensive Autonomous CTF Solver Benchmark Report
 
 **Benchmark Date**: November 18, 2026  
-**Target Environment**: Windows 11 Laptop (Intel Core i5-8250U 4C/8T, 16 GB Physical RAM, NVIDIA MX130 2 GB)  
+**Target Environment**: Standard x86_64 Laptop (4C/8T, 16 GB Physical RAM)  
 **Container Engine**: Docker Desktop 29.9.2 (WSL2 Backend, Linux 6.18)  
 **Security Policy**: Strict Container Isolation (`ctf-sandbox-lite:latest`), 3 GB RAM cap, 2.0 NanoCpus cap, No `SYS_ADMIN`, Read-Only Distfiles  
 **Verification Model**: Authentic Cryptographic SHA-256 Hash Matching and In-Sandbox `validate.py` Oracles  

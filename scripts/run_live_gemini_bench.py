@@ -107,7 +107,6 @@ async def main():
 
     provider = AgyCliProvider(
         model="gemini-3.8-flash-low",
-        executable_path=r"D:\ADMIN\bin\agy.exe",
         effort="low",
     )
 

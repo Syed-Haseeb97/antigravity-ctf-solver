@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
-    # Hardware-optimized Docker Sandbox Profile (Laptop Target: i5, 16GB RAM)
+    # Hardware-optimized Docker Sandbox Profile
     sandbox_image: str = "ctf-sandbox-lite"
     sandbox_profile: str = "lite"  # lite, standard, advanced
     container_memory_limit: str = "3g"  # 3GB limit per container (replaces 16g default)
@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     command_timeout_seconds: int = 60
     turn_timeout_seconds: int = 180
 
-    # Storage paths (Strictly Drive D: per policy)
-    workspace_root: str = r"D:\5TH vid\ctf ig\.workspaces"
+    # Storage paths
+    workspace_root: str = ".workspaces"
     challenges_dir: str = "challenges"
 
     # Competition Safety Controls

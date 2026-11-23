@@ -15,7 +15,7 @@ from backend.providers.base import BaseProvider, LLMResponse, LLMUsage
 logger = logging.getLogger(__name__)
 
 DEFAULT_AGY_PATHS = [
-    r"D:\ADMIN\bin\agy.exe",
+    os.path.expanduser(r"~\.antigravity\bin\agy.exe"),
     r"C:\Program Files\Antigravity\bin\agy.exe",
 ]
 

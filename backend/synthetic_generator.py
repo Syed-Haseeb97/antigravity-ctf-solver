@@ -365,5 +365,5 @@ if __name__ == '__main__':
 
 
 if __name__ == "__main__":
-    out = generate_synthetic_challenges(r"D:\5TH vid\ctf ig\antigravity-cli\tests\synthetic")
+    out = generate_synthetic_challenges(Path("tests") / "synthetic")
     print(f"Generated {len(out)} synthetic challenges: {list(out.keys())}")

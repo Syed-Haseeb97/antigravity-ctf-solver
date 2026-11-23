@@ -20,7 +20,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 CONTAINER_LABEL = "antigravity-ctf-sandbox"
-DEFAULT_WORKSPACE_ROOT = r"D:\5TH vid\ctf ig\.workspaces"
+DEFAULT_WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT", ".workspaces")
 
 # Concurrency control — hardware friendly
 _start_semaphore: asyncio.Semaphore | None = None

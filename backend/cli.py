@@ -87,7 +87,7 @@ def doctor() -> None:
         table.add_row(
             "Antigravity CLI",
             "[yellow]WARN[/yellow]",
-            "agy executable not found on PATH or D:\\ADMIN\\bin\\agy.exe. Set AGY_CLI_PATH in .env",
+            "agy executable not found on PATH. Set AGY_CLI_PATH in .env or add agy to PATH",
         )
 
     # 5. Docker Desktop

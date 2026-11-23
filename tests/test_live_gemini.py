@@ -13,7 +13,6 @@ from backend.synthetic_generator import generate_synthetic_challenges
 async def test_live_agy_gemini_solve(tmp_path):
     provider = AgyCliProvider(
         model="gemini-3.8-flash-medium",
-        executable_path=r"D:\ADMIN\bin\agy.exe",
     )
     if not provider.is_available():
         pytest.skip("Antigravity CLI not available on system.")
